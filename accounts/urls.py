@@ -4,6 +4,7 @@ from .views import (
     RegisterView, LoginView, MeView, LogoutView,
     ChangePasswordView, DeleteAccountView,
     SendCodeView, VerifyCodeView,
+    TelegramWebAppAuthView,
 )
 
 urlpatterns = [
@@ -16,4 +17,5 @@ urlpatterns = [
     path('logout/', LogoutView.as_view(), name='logout'),
     path('change-password/', ChangePasswordView.as_view(), name='change_password'),
     path('delete-account/', DeleteAccountView.as_view(), name='delete_account'),
+    path('telegram-webapp/', TelegramWebAppAuthView.as_view(), name='telegram_webapp'),
 ]

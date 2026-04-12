@@ -269,6 +269,56 @@ class DeleteAccountView(APIView):
         return Response({'detail': 'Аккаунт удалён'})
 
 
+class TelegramWebAppAuthView(APIView):
+    """POST /api/auth/telegram-webapp/ — auth via Telegram Mini App initData."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        init_data_raw = request.data.get('initData', '')
+        if not init_data_raw:
+            return Response({'error': 'initData is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from init_data_py import InitData
+
+            init_data = InitData.parse(init_data_raw)
+            if not init_data.validate(bot_token=settings.TELEGRAM_BOT_TOKEN, lifetime=86400):
+                return Response({'error': 'Invalid or expired initData'}, status=status.HTTP_401_UNAUTHORIZED)
+
+            tg_user = init_data.user
+            if not tg_user or not tg_user.id:
+                return Response({'error': 'No user data in initData'}, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({'error': f'initData validation failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find or create user by telegram_id
+        telegram_id = tg_user.id
+        user = User.objects.filter(telegram_id=telegram_id).first()
+
+        if not user:
+            email = f'tg_{telegram_id}@eifavpn.ru'
+            first_name = getattr(tg_user, 'first_name', '') or ''
+            user = User.objects.create_user(
+                email=email,
+                first_name=first_name,
+                telegram_id=telegram_id,
+                email_verified=True,
+            )
+        else:
+            # Update name if changed
+            first_name = getattr(tg_user, 'first_name', '') or ''
+            if first_name and user.first_name != first_name:
+                user.first_name = first_name
+                user.save(update_fields=['first_name'])
+
+        tokens = get_tokens_for_user(user)
+        return Response({
+            'user': UserSerializer(user).data,
+            'tokens': tokens,
+        })
+
+
 def _mask_email(email):
     """Mask email: show first 2 chars + *** + @domain."""
     if not email or '@' not in email:
