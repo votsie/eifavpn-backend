@@ -10,6 +10,7 @@ ALLOWED_PREFIXES = [
     '/users/by-tag/',
     '/users/by-telegram-id/',
     '/users/',
+    '/hwid-user-devices/',
     '/nodes',
     '/hosts',
     '/system/stats',

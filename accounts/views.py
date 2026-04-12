@@ -331,6 +331,40 @@ def _mask_email(email):
     return f'{masked}@{domain}'
 
 
+class PrepareShareView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if not user.telegram_id:
+            return Response({'error': 'Telegram not linked'}, status=status.HTTP_400_BAD_REQUEST)
+
+        import requests as req
+        bot_token = settings.TELEGRAM_BOT_TOKEN
+
+        result = req.post(f'https://api.telegram.org/bot{bot_token}/savePreparedInlineMessage', json={
+            'user_id': user.telegram_id,
+            'result': {
+                'type': 'article',
+                'id': f'ref_{user.referral_code}',
+                'title': 'EIFAVPN — Безопасный VPN',
+                'input_message_content': {
+                    'message_text': f'\U0001f512 EIFAVPN \u2014 быстрый и безопасный VPN\n\nПопробуй бесплатно 3 дня MAX!\n\n\U0001f449 https://eifavpn.ru/register?ref={user.referral_code}',
+                    'parse_mode': 'HTML',
+                },
+                'description': 'Получи 3 дня бесплатного VPN',
+            },
+            'allow_user_chats': True,
+            'allow_group_chats': True,
+            'allow_channel_chats': True,
+        }, timeout=10)
+
+        data = result.json()
+        if data.get('ok'):
+            return Response({'id': data['result']['id']})
+        return Response({'error': data.get('description', 'Failed')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ReferralMyView(APIView):
     permission_classes = [IsAuthenticated]
 

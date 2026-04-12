@@ -346,19 +346,27 @@ def create_wata_invoice(sub, amount_rub):
 # === Webhooks ===
 
 def process_payment_success(sub):
-    """After successful payment: create Remnawave subscription + referral bonus."""
+    """After successful payment: create or update Remnawave subscription + referral bonus."""
     user = sub.user
 
-    # Create VPN subscription in Remnawave
     try:
-        rmn_user = remnawave.create_subscription(user, sub.plan, sub.period_months)
-        user.remnawave_uuid = rmn_user['uuid']
-        user.remnawave_short_uuid = rmn_user['shortUuid']
-        user.subscription_url = rmn_user.get('subscriptionUrl', '')
-        user.save()
-        sub.remnawave_uuid = rmn_user['uuid']
-    except Exception:
-        # Log error but don't fail — can be retried
+        if user.remnawave_uuid:
+            # User already has a Remnawave account — UPDATE plan (squad, traffic, devices, expiry)
+            rmn_user = remnawave.update_subscription(
+                user.remnawave_uuid, sub.plan, sub.period_months
+            )
+            sub.remnawave_uuid = user.remnawave_uuid
+        else:
+            # New user — CREATE Remnawave subscription
+            rmn_user = remnawave.create_subscription(user, sub.plan, sub.period_months)
+            user.remnawave_uuid = rmn_user['uuid']
+            user.remnawave_short_uuid = rmn_user['shortUuid']
+            user.subscription_url = rmn_user.get('subscriptionUrl', '')
+            user.save()
+            sub.remnawave_uuid = rmn_user['uuid']
+    except Exception as e:
+        import logging
+        logging.error(f'Remnawave subscription error for user {user.id}: {e}')
         pass
 
     sub.status = 'paid'
