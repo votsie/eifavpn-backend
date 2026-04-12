@@ -93,26 +93,59 @@ class PurchaseView(APIView):
 
 
 class MySubscriptionView(APIView):
-    """GET /api/subscriptions/my/ — current user subscription."""
+    """GET /api/subscriptions/my/ — current subscription + Remnawave traffic data."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        sub = request.user.subscriptions.filter(status='paid').order_by('-expires_at').first()
+        user = request.user
+        sub = user.subscriptions.filter(status='paid').order_by('-expires_at').first()
         if not sub:
             return Response({'subscription': None})
+
+        plan_config = PLANS.get(sub.plan, {})
 
         data = {
             'id': sub.id,
             'plan': sub.plan,
-            'plan_name': PLANS[sub.plan]['name'],
+            'plan_name': plan_config.get('name', sub.plan),
             'period_months': sub.period_months,
             'price_paid': str(sub.price_paid),
             'status': sub.status,
             'payment_method': sub.payment_method,
             'created_at': sub.created_at.isoformat(),
             'expires_at': sub.expires_at.isoformat(),
-            'subscription_url': request.user.subscription_url,
+            'subscription_url': user.subscription_url,
+            # Plan details
+            'plan_servers': plan_config.get('servers', 0),
+            'plan_devices': plan_config.get('devices', 0),
+            'plan_traffic_bytes': plan_config.get('traffic_bytes', 0),
+            'plan_adblock': plan_config.get('adblock', False),
+            'plan_p2p': plan_config.get('p2p', False),
+            # Remnawave live data
+            'remnawave': None,
         }
+
+        # Fetch live data from Remnawave
+        if user.remnawave_uuid:
+            try:
+                rmn = remnawave.get_user_data(user.remnawave_uuid)
+                if rmn:
+                    traffic = rmn.get('userTraffic', {})
+                    data['remnawave'] = {
+                        'status': rmn.get('status', 'UNKNOWN'),
+                        'used_traffic_bytes': traffic.get('usedTrafficBytes', 0),
+                        'lifetime_traffic_bytes': traffic.get('lifetimeUsedTrafficBytes', 0),
+                        'traffic_limit_bytes': rmn.get('trafficLimitBytes', 0),
+                        'online_at': traffic.get('onlineAt'),
+                        'first_connected_at': traffic.get('firstConnectedAt'),
+                        'last_node_uuid': traffic.get('lastConnectedNodeUuid'),
+                        'hwid_device_limit': rmn.get('hwidDeviceLimit', 0),
+                        'expire_at': rmn.get('expireAt'),
+                        'last_traffic_reset_at': rmn.get('lastTrafficResetAt'),
+                    }
+            except Exception:
+                pass
+
         return Response({'subscription': data})
 
 

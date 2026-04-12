@@ -54,6 +54,22 @@ def create_subscription(user, plan, period_months, days=None):
     return data.get('response', data)
 
 
+def get_user_data(remnawave_uuid):
+    """Get user data from Remnawave including traffic stats."""
+    resp = requests.get(
+        f'{settings.REMNAWAVE_API_URL}/users/{remnawave_uuid}',
+        headers={
+            'Authorization': f'Bearer {settings.REMNAWAVE_BEARER_TOKEN}',
+            'Content-Type': 'application/json',
+        },
+        timeout=10,
+    )
+    if resp.ok:
+        data = resp.json()
+        return data.get('response', data)
+    return None
+
+
 def extend_subscription(remnawave_uuid, days):
     """Extend existing subscription by N days."""
     # First get current expiry
