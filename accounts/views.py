@@ -39,7 +39,10 @@ class SendCodeView(APIView):
         code = EmailVerification.generate_code()
         EmailVerification.objects.create(email=email, code=code)
 
+        email_sent = False
         try:
+            import socket
+            socket.setdefaulttimeout(10)  # 10s timeout for SMTP
             send_mail(
                 subject='EIFAVPN — Код подтверждения',
                 message=f'Ваш код подтверждения: {code}\n\nКод действителен 10 минут.\n\nЕсли вы не запрашивали код, проигнорируйте это письмо.',
@@ -58,13 +61,18 @@ class SendCodeView(APIView):
                 recipient_list=[email],
                 fail_silently=False,
             )
+            email_sent = True
         except Exception as e:
-            # Email failed — return code in response as fallback (for development/when SMTP is blocked)
             import logging
-            logging.warning(f'Email send failed for {email}: {e}. Returning code in response.')
-            return Response({'detail': 'Код отправлен на email', 'email': email, 'code': code, '_debug': 'email_failed'})
+            logging.warning(f'Email send failed for {email}: {e}')
+            email_sent = False
 
-        return Response({'detail': 'Код отправлен на email', 'email': email})
+        resp = {'detail': 'Код отправлен на email', 'email': email}
+        if not email_sent:
+            # Fallback: return code directly when email delivery fails
+            resp['code'] = code
+            resp['_note'] = 'Email delivery unavailable, code returned directly'
+        return Response(resp)
 
 
 class VerifyCodeView(APIView):
