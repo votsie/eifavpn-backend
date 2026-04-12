@@ -1,0 +1,25 @@
+name: Deploy Backend DEV
+
+on:
+  push:
+    branches: [dev]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 5.101.81.90
+          username: root
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            cd /opt/eifavpn/dev/backend
+            git pull origin dev
+            source venv/bin/activate
+            pip install -r requirements.txt -q
+            DJANGO_SETTINGS_MODULE=eifavpn.settings.dev python manage.py migrate --noinput
+            systemctl restart eifavpn-dev
