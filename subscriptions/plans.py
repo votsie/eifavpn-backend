@@ -1,10 +1,13 @@
 """Pricing and plan configuration."""
 
-# Squad UUIDs from Remnawave (hardcoded — stable identifiers)
+# Use Default-Squad for all plans (has all hosts configured)
+# Plan differences enforced via traffic/devices, not squads
+DEFAULT_SQUAD = '38d5757f-a45a-4144-b4b3-fd3f5facb5dd'
+
 SQUAD_UUIDS = {
-    'standard': 'b88b61e7-eb76-49b4-878f-c53b3e078b37',
-    'pro': 'd4f1b004-43a2-43bb-b429-bbd3a220de4a',
-    'max': '67729b5d-e951-488a-bb85-f813b1532919',
+    'standard': DEFAULT_SQUAD,
+    'pro': DEFAULT_SQUAD,
+    'max': DEFAULT_SQUAD,
 }
 
 PLANS = {
