@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'accounts',
+    'subscriptions',
     'api',
 ]
 
@@ -77,6 +78,13 @@ GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_BOT_ID = os.environ.get('TELEGRAM_BOT_ID', '')
 TELEGRAM_BOT_SECRET = os.environ.get('TELEGRAM_BOT_SECRET', '')
+
+# Payment providers
+CRYPTOPAY_TOKEN = os.environ.get('CRYPTOPAY_TOKEN', '')
+WATA_TOKEN = os.environ.get('WATA_TOKEN', '')
+
+# Remnawave squads (default fallback)
+REMNAWAVE_DEFAULT_SQUAD = os.environ.get('REMNAWAVE_DEFAULT_SQUAD', '')
 
 # App URL
 APP_URL = os.environ.get('APP_URL', 'http://localhost:5173')
