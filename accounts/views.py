@@ -122,6 +122,37 @@ class ChangePasswordView(APIView):
         return Response({'detail': 'Пароль изменён'})
 
 
+class DeleteAccountView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        password = request.data.get('password', '')
+        user = request.user
+
+        # Require password confirmation (skip for OAuth-only users)
+        if user.has_usable_password() and not user.check_password(password):
+            return Response({'error': 'Неверный пароль'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Disable Remnawave subscription if exists
+        if user.remnawave_uuid:
+            try:
+                import requests as req
+                req.patch(
+                    f'{settings.REMNAWAVE_API_URL}/users',
+                    json={'uuid': str(user.remnawave_uuid), 'status': 'DISABLED'},
+                    headers={
+                        'Authorization': f'Bearer {settings.REMNAWAVE_BEARER_TOKEN}',
+                        'Content-Type': 'application/json',
+                    },
+                    timeout=10,
+                )
+            except Exception:
+                pass
+
+        user.delete()
+        return Response({'detail': 'Аккаунт удалён'})
+
+
 def _mask_email(email):
     """Mask email: show first 2 chars + *** + @domain."""
     if not email or '@' not in email:
