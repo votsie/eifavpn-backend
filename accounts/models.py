@@ -47,6 +47,10 @@ class User(AbstractUser):
     )
     referral_bonus_days = models.IntegerField(default=0)
 
+    # Trial funnel
+    used_trial = models.BooleanField(default=False)
+    used_trial_upgrade = models.BooleanField(default=False)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 

@@ -46,6 +46,7 @@ class UserSerializer(serializers.ModelSerializer):
             'telegram_id', 'google_id',
             'remnawave_uuid', 'remnawave_short_uuid', 'subscription_url',
             'referral_code', 'referral_bonus_days',
+            'used_trial', 'used_trial_upgrade',
             'has_subscription', 'current_plan',
             'date_joined',
         ]

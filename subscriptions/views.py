@@ -116,6 +116,108 @@ class MySubscriptionView(APIView):
         return Response({'subscription': data})
 
 
+class TrialActivateView(APIView):
+    """POST /api/subscriptions/trial/ — activate 3-day MAX trial."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+
+        if user.used_trial:
+            return Response({'error': 'Триал уже был использован'}, status=400)
+        if user.subscriptions.exists():
+            return Response({'error': 'У вас уже есть или была подписка'}, status=400)
+
+        from datetime import datetime, timedelta, timezone
+
+        # Create Remnawave subscription (MAX, 3 days)
+        try:
+            rmn_user = remnawave.create_subscription(user, 'max', period_months=0, days=3)
+            user.remnawave_uuid = rmn_user['uuid']
+            user.remnawave_short_uuid = rmn_user['shortUuid']
+            user.subscription_url = rmn_user.get('subscriptionUrl', '')
+            user.used_trial = True
+            user.save()
+        except Exception as e:
+            return Response({'error': f'Ошибка создания подписки: {str(e)}'}, status=500)
+
+        # Create local subscription record
+        sub = Subscription.objects.create(
+            user=user,
+            plan='max',
+            period_months=0,
+            price_paid=0,
+            payment_method='trial',
+            payment_id='trial_3d_max',
+            status='paid',
+            expires_at=datetime.now(timezone.utc) + timedelta(days=3),
+            remnawave_uuid=rmn_user['uuid'],
+        )
+
+        return Response({
+            'success': True,
+            'plan': 'max',
+            'days': 3,
+            'subscription_url': user.subscription_url,
+            'expires_at': sub.expires_at.isoformat(),
+        })
+
+
+class TrialUpgradeView(APIView):
+    """POST /api/subscriptions/trial-upgrade/ — 7 days PRO for 1₽."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        method = request.data.get('payment_method', 'stars')
+
+        if not user.used_trial:
+            return Response({'error': 'Сначала активируйте триал'}, status=400)
+        if user.used_trial_upgrade:
+            return Response({'error': 'Спецпредложение уже использовано'}, status=400)
+
+        from datetime import datetime, timedelta, timezone
+
+        # Create pending subscription
+        sub = Subscription.objects.create(
+            user=user,
+            plan='pro',
+            period_months=0,
+            price_paid=1,
+            payment_method=method,
+            status='pending',
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        )
+
+        # Create invoice for 1₽
+        if method == 'stars':
+            invoice = create_stars_invoice(sub, 1)
+        elif method == 'crypto':
+            invoice = create_crypto_invoice(sub, 1)
+        elif method == 'wata':
+            invoice = create_wata_invoice(sub, 1)
+        else:
+            sub.delete()
+            return Response({'error': 'Invalid payment method'}, status=400)
+
+        if invoice.get('error'):
+            sub.delete()
+            return Response({'error': invoice['error']}, status=500)
+
+        sub.payment_id = invoice.get('payment_id', '')
+        sub.save()
+
+        # Mark trial upgrade as used (will be confirmed on payment)
+        user.used_trial_upgrade = True
+        user.save()
+
+        return Response({
+            'payment_url': invoice.get('payment_url'),
+            'payment_id': invoice.get('payment_id'),
+            'amount': 1,
+        })
+
+
 # === Payment method helpers ===
 
 def create_stars_invoice(sub, amount_rub):

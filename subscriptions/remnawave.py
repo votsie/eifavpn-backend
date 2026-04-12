@@ -12,12 +12,15 @@ def get_squad_uuid(plan):
     return os.environ.get(key, settings.REMNAWAVE_DEFAULT_SQUAD)
 
 
-def create_subscription(user, plan, period_months):
+def create_subscription(user, plan, period_months, days=None):
     """Create a new VPN subscription in Remnawave."""
     from .plans import PLANS
 
     config = PLANS[plan]
-    expire_at = datetime.now(timezone.utc) + timedelta(days=period_months * 30)
+    if days:
+        expire_at = datetime.now(timezone.utc) + timedelta(days=days)
+    else:
+        expire_at = datetime.now(timezone.utc) + timedelta(days=period_months * 30)
     squad_uuid = get_squad_uuid(plan)
 
     payload = {
