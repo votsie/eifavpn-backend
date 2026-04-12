@@ -68,8 +68,10 @@ REMNAWAVE_BEARER_TOKEN = os.environ.get('REMNAWAVE_BEARER_TOKEN', '')
 GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID', '')
 GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET', '')
 
-# Telegram
+# Telegram OAuth 2.0
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+TELEGRAM_BOT_ID = os.environ.get('TELEGRAM_BOT_ID', '')
+TELEGRAM_BOT_SECRET = os.environ.get('TELEGRAM_BOT_SECRET', '')
 
 # App URL
 APP_URL = os.environ.get('APP_URL', 'http://localhost:5173')
