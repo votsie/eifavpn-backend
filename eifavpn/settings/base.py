@@ -79,6 +79,15 @@ TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_BOT_ID = os.environ.get('TELEGRAM_BOT_ID', '')
 TELEGRAM_BOT_SECRET = os.environ.get('TELEGRAM_BOT_SECRET', '')
 
+# Email (Postfix on our server)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '5.101.81.90')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', 'noreply')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', 'N0reply!EifaVPN2026')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'False') == 'True'
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@eifavpn.ru')
+
 # Payment providers
 CRYPTOPAY_TOKEN = os.environ.get('CRYPTOPAY_TOKEN', '')
 WATA_TOKEN = os.environ.get('WATA_TOKEN', '')

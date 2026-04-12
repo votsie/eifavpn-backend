@@ -51,6 +51,9 @@ class User(AbstractUser):
     used_trial = models.BooleanField(default=False)
     used_trial_upgrade = models.BooleanField(default=False)
 
+    # Email verification
+    email_verified = models.BooleanField(default=False)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
@@ -94,3 +97,23 @@ class Referral(models.Model):
 
     def __str__(self):
         return f'{self.referrer.email} → {self.referred.email}'
+
+
+class EmailVerification(models.Model):
+    email = models.EmailField()
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    @staticmethod
+    def generate_code():
+        import random
+        return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+
+    def is_expired(self):
+        from django.utils import timezone
+        from datetime import timedelta
+        return timezone.now() > self.created_at + timedelta(minutes=10)
