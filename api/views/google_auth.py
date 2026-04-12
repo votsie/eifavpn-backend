@@ -2,6 +2,8 @@ import requests
 from urllib.parse import urlencode
 from django.conf import settings
 from django.http import HttpResponseRedirect
+from accounts.models import User
+from accounts.views import get_tokens_for_user
 
 
 def google_login(request):
@@ -40,7 +42,7 @@ def google_callback(request):
 
         tokens = token_resp.json()
 
-        # Get user info
+        # Get user info from Google
         userinfo_resp = requests.get('https://www.googleapis.com/oauth2/v2/userinfo', headers={
             'Authorization': f'Bearer {tokens["access_token"]}',
         }, timeout=10)
@@ -48,31 +50,43 @@ def google_callback(request):
         if not userinfo_resp.ok:
             return HttpResponseRedirect(f'{app_url}/cabinet/login?error=userinfo')
 
-        email = userinfo_resp.json().get('email')
+        info = userinfo_resp.json()
+        email = info.get('email', '').lower()
+        google_id = info.get('id', '')
+        name = info.get('name', '')
+        picture = info.get('picture', '')
+
         if not email:
             return HttpResponseRedirect(f'{app_url}/cabinet/login?error=no_email')
 
-        # Look up in Remnawave
-        rmn_resp = requests.get(
-            f'{settings.REMNAWAVE_API_URL}/users/by-email/{email}',
-            headers={
-                'Authorization': f'Bearer {settings.REMNAWAVE_BEARER_TOKEN}',
-                'Content-Type': 'application/json',
-            },
-            timeout=10,
-        )
-
-        if not rmn_resp.ok:
-            return HttpResponseRedirect(
-                f'{app_url}/cabinet/login?error=not_found&email={email}'
+        # Find or create Django user
+        user = User.objects.filter(email=email).first()
+        if not user:
+            user = User.objects.filter(google_id=google_id).first()
+        if not user:
+            user = User.objects.create_user(
+                email=email,
+                first_name=name,
+                google_id=google_id,
+                avatar_url=picture,
             )
+        else:
+            if not user.google_id:
+                user.google_id = google_id
+            if picture and not user.avatar_url:
+                user.avatar_url = picture
+            if name and not user.first_name:
+                user.first_name = name
+            user.save()
 
-        data = rmn_resp.json()
-        user = data.get('response', data)
-        short_uuid = user.get('shortUuid')
+        # Generate JWT tokens
+        jwt_tokens = get_tokens_for_user(user)
 
+        # Redirect to frontend with tokens in URL fragment (not query — more secure)
         return HttpResponseRedirect(
-            f'{app_url}/cabinet/login?auth=google&shortUuid={short_uuid}'
+            f'{app_url}/cabinet/login?auth=google'
+            f'&access={jwt_tokens["access"]}'
+            f'&refresh={jwt_tokens["refresh"]}'
         )
-    except Exception as e:
+    except Exception:
         return HttpResponseRedirect(f'{app_url}/cabinet/login?error=server')
