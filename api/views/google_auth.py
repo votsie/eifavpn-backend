@@ -5,7 +5,7 @@ from django.http import HttpResponseRedirect
 
 
 def google_login(request):
-    redirect_uri = f'{settings.APP_URL}/api/auth/google/callback'
+    redirect_uri = f'{settings.APP_URL}/api/auth/google/callback/'
     params = urlencode({
         'client_id': settings.GOOGLE_CLIENT_ID,
         'redirect_uri': redirect_uri,
@@ -20,7 +20,7 @@ def google_login(request):
 def google_callback(request):
     code = request.GET.get('code')
     app_url = settings.APP_URL
-    redirect_uri = f'{app_url}/api/auth/google/callback'
+    redirect_uri = f'{app_url}/api/auth/google/callback/'
 
     if not code:
         return HttpResponseRedirect(f'{app_url}/cabinet/login?error=no_code')
