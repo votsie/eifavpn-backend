@@ -69,9 +69,10 @@ class SendCodeView(APIView):
 
         resp = {'detail': 'Код отправлен на email', 'email': email}
         if not email_sent:
-            # Fallback: return code directly when email delivery fails
-            resp['code'] = code
-            resp['_note'] = 'Email delivery unavailable, code returned directly'
+            import logging
+            logging.error(f'CRITICAL: Email delivery failed for {email}. Code NOT returned to client.')
+            resp['detail'] = 'Ошибка отправки email. Попробуйте позже или войдите через Google/Telegram.'
+            return Response(resp, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(resp)
 
 

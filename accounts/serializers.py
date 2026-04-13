@@ -56,10 +56,12 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
     def get_has_subscription(self, obj):
-        return obj.subscriptions.filter(status='paid').exists()
+        from django.utils import timezone
+        return obj.subscriptions.filter(status='paid', expires_at__gt=timezone.now()).exists()
 
     def get_current_plan(self, obj):
-        sub = obj.subscriptions.filter(status='paid').order_by('-expires_at').first()
+        from django.utils import timezone
+        sub = obj.subscriptions.filter(status='paid', expires_at__gt=timezone.now()).order_by('-expires_at').first()
         if sub:
             return {'plan': sub.plan, 'expires_at': sub.expires_at.isoformat(), 'period': sub.period_months}
         return None

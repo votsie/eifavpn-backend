@@ -240,9 +240,8 @@ class TrialUpgradeView(APIView):
         sub.payment_id = invoice.get('payment_id', '')
         sub.save()
 
-        # Mark trial upgrade as used (will be confirmed on payment)
-        user.used_trial_upgrade = True
-        user.save()
+        # Don't mark used_trial_upgrade here — mark it in process_payment_success
+        # to prevent losing the upgrade if payment fails
 
         return Response({
             'payment_url': invoice.get('payment_url'),
@@ -371,6 +370,11 @@ def process_payment_success(sub):
 
     sub.status = 'paid'
     sub.save()
+
+    # Mark trial upgrade as used after successful payment
+    if sub.payment_method in ('stars', 'crypto', 'wata') and sub.price_paid == 1 and not user.used_trial_upgrade:
+        user.used_trial_upgrade = True
+        user.save(update_fields=['used_trial_upgrade'])
 
     # Referral bonus: +7 days for the person who invited this user
     if user.referred_by and not Referral.objects.filter(referred=user, bonus_applied=True).exists():
