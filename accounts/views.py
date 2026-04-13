@@ -366,6 +366,132 @@ class PrepareShareView(APIView):
         return Response({'error': data.get('description', 'Failed')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class LinkEmailView(APIView):
+    """POST /api/auth/link-email/ — send verification code to new email."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        email = (request.data.get('email') or '').strip().lower()
+
+        # Google users can't change email
+        if user.google_id:
+            return Response({'error': 'Google-аккаунт уже привязан, email изменить нельзя'}, status=400)
+
+        # Don't allow if email is already a real email (not tg_*)
+        if not user.email.startswith('tg_') and '@eifavpn.ru' not in user.email:
+            return Response({'error': 'Email уже привязан'}, status=400)
+
+        if not email or '@' not in email:
+            return Response({'error': 'Укажите корректный email'}, status=400)
+
+        # Check email not taken
+        if User.objects.filter(email__iexact=email).exclude(pk=user.pk).exists():
+            return Response({'error': 'Этот email уже используется'}, status=400)
+
+        # Rate limit
+        from django.utils import timezone
+        from datetime import timedelta
+        recent = EmailVerification.objects.filter(
+            email=email, created_at__gte=timezone.now() - timedelta(minutes=1)
+        ).exists()
+        if recent:
+            return Response({'error': 'Код уже отправлен. Подождите минуту.'}, status=429)
+
+        code = EmailVerification.generate_code()
+        EmailVerification.objects.create(email=email, code=code)
+
+        # Send email
+        try:
+            import socket
+            socket.setdefaulttimeout(10)
+            send_mail(
+                subject='EIFAVPN — Привязка email',
+                message=f'Код привязки email: {code}',
+                html_message=f'<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:32px;background:#0a1a1f;color:#e0f0f0;border-radius:16px;"><h2 style="color:#5cebd6;">Привязка email</h2><p>Код подтверждения:</p><div style="background:#0d2229;padding:16px;border-radius:12px;text-align:center;"><span style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#5cebd6;">{code}</span></div><p style="color:#667;font-size:12px;">Код действителен 10 минут.</p></div>',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception:
+            return Response({'error': 'Ошибка отправки email'}, status=503)
+
+        return Response({'detail': 'Код отправлен', 'email': email})
+
+
+class LinkEmailVerifyView(APIView):
+    """POST /api/auth/link-email/verify/ — verify code and link email."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        email = (request.data.get('email') or '').strip().lower()
+        code = (request.data.get('code') or '').strip()
+
+        if not email or not code:
+            return Response({'error': 'Укажите email и код'}, status=400)
+
+        verification = EmailVerification.objects.filter(
+            email=email, code=code, used=False
+        ).order_by('-created_at').first()
+
+        if not verification:
+            return Response({'error': 'Неверный код'}, status=400)
+        if verification.is_expired():
+            return Response({'error': 'Код истёк'}, status=400)
+
+        # Check email not taken
+        if User.objects.filter(email__iexact=email).exclude(pk=user.pk).exists():
+            return Response({'error': 'Этот email уже используется'}, status=400)
+
+        verification.used = True
+        verification.save()
+
+        user.email = email
+        user.email_verified = True
+        user.save(update_fields=['email', 'email_verified'])
+
+        return Response(UserSerializer(user).data)
+
+
+class LinkTelegramView(APIView):
+    """POST /api/auth/link-telegram/ — link Telegram to existing account."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        init_data_raw = request.data.get('initData', '')
+
+        if user.telegram_id:
+            return Response({'error': 'Telegram уже привязан'}, status=400)
+
+        if not init_data_raw:
+            return Response({'error': 'initData required'}, status=400)
+
+        try:
+            from init_data_py import InitData
+            init_data = InitData.parse(init_data_raw)
+            if not init_data.validate(bot_token=settings.TELEGRAM_BOT_TOKEN, lifetime=86400):
+                return Response({'error': 'Invalid initData'}, status=401)
+
+            tg_user = init_data.user
+            telegram_id = tg_user.id if tg_user else None
+        except Exception:
+            return Response({'error': 'Ошибка валидации Telegram'}, status=400)
+
+        if not telegram_id:
+            return Response({'error': 'Не удалось получить Telegram ID'}, status=400)
+
+        # Check telegram_id not taken
+        if User.objects.filter(telegram_id=telegram_id).exclude(pk=user.pk).exists():
+            return Response({'error': 'Этот Telegram уже привязан к другому аккаунту'}, status=400)
+
+        user.telegram_id = telegram_id
+        user.save(update_fields=['telegram_id'])
+
+        return Response(UserSerializer(user).data)
+
+
 class ReferralMyView(APIView):
     permission_classes = [IsAuthenticated]
 

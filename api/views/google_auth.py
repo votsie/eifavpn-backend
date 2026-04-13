@@ -59,6 +59,32 @@ def google_callback(request):
         if not email:
             return HttpResponseRedirect(f'{app_url}/cabinet/login?error=no_email')
 
+        # Check if this is a link request (state=link:{user_id})
+        state = request.GET.get('state', '')
+        if state.startswith('link:'):
+            try:
+                link_user_id = int(state.split(':')[1])
+                link_user = User.objects.get(id=link_user_id)
+
+                # Check google_id not already taken
+                if User.objects.filter(google_id=google_id).exclude(pk=link_user.pk).exists():
+                    return HttpResponseRedirect(f'{app_url}/cabinet/settings?error=google_taken')
+
+                link_user.google_id = google_id
+                if not link_user.avatar_url and picture:
+                    link_user.avatar_url = picture
+                link_user.save()
+
+                # Return JWT for linked user
+                jwt_tokens = get_tokens_for_user(link_user)
+                return HttpResponseRedirect(
+                    f'{app_url}/cabinet/settings?linked=google'
+                    f'&access={jwt_tokens["access"]}'
+                    f'&refresh={jwt_tokens["refresh"]}'
+                )
+            except (User.DoesNotExist, ValueError):
+                return HttpResponseRedirect(f'{app_url}/cabinet/settings?error=link_failed')
+
         # Find or create Django user
         user = User.objects.filter(email=email).first()
         if not user:
