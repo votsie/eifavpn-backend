@@ -10,10 +10,24 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from django.db.models import F
-from accounts.models import Subscription, Referral, PromoCode, PromoCodeUsage
+from accounts.models import Subscription, Referral
+try:
+    from accounts.models import PromoCode, PromoCodeUsage
+except ImportError:
+    PromoCode = None
+    PromoCodeUsage = None
 from .plans import PLANS, PRICING, get_price, get_price_with_referral, REFERRAL_BONUS_DAYS
-from .promo_utils import validate_promo_for_user, calculate_promo_price
-from .exchange_rates import get_rates, rub_to_crypto, rub_to_stars
+try:
+    from .promo_utils import validate_promo_for_user, calculate_promo_price
+except ImportError:
+    validate_promo_for_user = None
+    calculate_promo_price = None
+try:
+    from .exchange_rates import get_rates, rub_to_crypto, rub_to_stars
+except ImportError:
+    get_rates = None
+    rub_to_crypto = None
+    rub_to_stars = None
 from . import remnawave
 
 
