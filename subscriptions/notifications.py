@@ -30,7 +30,8 @@ E = {
 
 
 def _e(emoji_id, fallback='✨'):
-    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+    # Premium emoji require bot with Telegram Premium — use fallback for now
+    return fallback
 
 
 def _token():
@@ -53,6 +54,8 @@ def _send_message(chat_id, text, reply_markup=None):
             f'https://api.telegram.org/bot{_token()}/sendMessage',
             json=payload, timeout=10,
         )
+        if not resp.ok:
+            logger.error(f'TG send failed to {chat_id}: {resp.status_code} {resp.text[:200]}')
         return resp.ok
     except Exception as e:
         logger.error(f'TG send failed to {chat_id}: {e}')
