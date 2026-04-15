@@ -1,0 +1,39 @@
+{
+  "sources": {
+    "full-project-scan": {
+      "hash": "full-scan-2026-04-16",
+      "ingested_at": "2026-04-16",
+      "pages_created": [
+        "wiki/overview.md",
+        "wiki/index.md",
+        "wiki/hot.md",
+        "wiki/log.md",
+        "wiki/sources/accounts-app.md",
+        "wiki/sources/api-app.md",
+        "wiki/sources/subscriptions-app.md",
+        "wiki/entities/user-model.md",
+        "wiki/entities/subscription-model.md",
+        "wiki/entities/referral-model.md",
+        "wiki/entities/emailverification-model.md",
+        "wiki/entities/promocode-model.md",
+        "wiki/entities/remnawave.md",
+        "wiki/entities/cryptopay.md",
+        "wiki/entities/wata-h2h.md",
+        "wiki/entities/telegram-stars.md",
+        "wiki/entities/telegram-bot-integration.md",
+        "wiki/concepts/authentication-flows.md",
+        "wiki/concepts/subscription-lifecycle.md",
+        "wiki/concepts/referral-system.md",
+        "wiki/concepts/promo-code-system.md",
+        "wiki/concepts/payment-processing.md",
+        "wiki/concepts/remnawave-integration.md",
+        "wiki/concepts/proxy-system.md",
+        "wiki/concepts/jwt-authentication.md",
+        "wiki/domains/project-settings.md",
+        "wiki/domains/ci-cd-pipeline.md",
+        "wiki/domains/api-endpoints-reference.md"
+      ],
+      "pages_updated": []
+    }
+  }
+}
