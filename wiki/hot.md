@@ -1,0 +1,47 @@
+---
+title: Hot Cache
+updated: 2026-04-16
+purpose: Quick-load context for future sessions
+---
+
+# Hot Cache
+
+## Project Identity
+- **Name**: eifavpn-backend
+- **Type**: Django 6.x REST API for VPN service
+- **Frontend**: Telegram Mini App
+- **VPN Panel**: Remnawave (wavepanel.eifastore.ru)
+- **Domain**: eifavpn.ru (prod), dev.eifavpn.ru (dev)
+
+## Apps
+- `accounts` — User model (email-based, multi-auth), referrals, email verification
+- `api` — Google/Telegram OAuth callbacks, Remnawave proxy
+- `subscriptions` — Plans (standard/pro/max), payments (Stars/Crypto/Wata), webhooks, notifications
+
+## Key Models
+- `User` (accounts) — email as USERNAME_FIELD, telegram_id, google_id, remnawave_uuid, referral_code
+- `Subscription` (accounts) — plan, period_months, status (pending/paid/cancelled/expired), payment_method
+- `Referral` (accounts) — referrer→referred tracking, bonus_applied flag
+- `EmailVerification` (accounts) — 6-digit codes, 10min expiry
+- `PromoCode` (accounts) — percent/days/gift types, per-user limits
+
+## External Services
+- **Remnawave**: POST/PATCH /users for VPN subscription CRUD
+- **CryptoPay**: createInvoice → webhook with HMAC-SHA256
+- **Wata H2H**: POST /api/h2h/links/ → webhook
+- **Telegram Stars**: createInvoiceLink → pre_checkout_query → successful_payment
+- **Telegram Bot API**: notifications, welcome messages, inline sharing
+
+## Auth Methods
+1. Email + 6-digit code (passwordless primary)
+2. Google OAuth 2.0 (authorization code flow)
+3. Telegram OAuth 2.0 (code + JWT flows)
+4. Telegram Mini App initData (HMAC validation)
+
+## Pricing (RUB/month)
+- Standard: 69/59/55/45 (1/3/6/12 мес)
+- Pro: 99/89/79/65
+- Max: 149/129/119/99
+
+## Latest Ingest
+- 2026-04-16: Full project scan — all modules documented
