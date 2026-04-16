@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from django.conf import settings
+from django.db.models import Q
 from .serializers import RegisterSerializer, LoginSerializer, UserSerializer, UpdateProfileSerializer
 from .models import User, Referral, EmailVerification
 from django.core.mail import send_mail
@@ -536,16 +537,74 @@ class ReferralMyView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from django.utils import timezone
+        from django.db.models import Sum, Count
+
         user = request.user
-        total_referrals = Referral.objects.filter(referrer=user).count()
+        all_referrals = Referral.objects.filter(referrer=user)
+        total_referrals = all_referrals.count()
+        paid_referrals = all_referrals.filter(bonus_applied=True).count()
         app_url = getattr(settings, 'APP_URL', 'https://eifavpn.ru')
+
+        # This month
+        now = timezone.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        referrals_this_month = all_referrals.filter(created_at__gte=month_start).count()
+
+        # Conversion rate
+        conversion_rate = round(paid_referrals / max(total_referrals, 1) * 100, 1)
+
+        # Total savings by referees (10% of each referred user's first paid subscription)
+        from accounts.models import Subscription
+        referred_user_ids = list(all_referrals.values_list('referred_id', flat=True))
+        total_savings = 0
+        if referred_user_ids:
+            total_paid = Subscription.objects.filter(
+                user_id__in=referred_user_ids, status='paid'
+            ).exclude(payment_method='trial').aggregate(s=Sum('price_paid'))['s'] or 0
+            total_savings = round(float(total_paid) * 0.10)
 
         return Response({
             'code': user.referral_code,
             'link': f'{app_url}/register?ref={user.referral_code}',
             'total_referrals': total_referrals,
+            'paid_referrals': paid_referrals,
+            'referrals_this_month': referrals_this_month,
+            'conversion_rate': conversion_rate,
             'bonus_days_earned': user.referral_bonus_days,
+            'total_savings_rub': total_savings,
         })
+
+
+class ReferralStatsView(APIView):
+    """GET /api/referral/stats/ — per-month referral breakdown."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models.functions import TruncMonth
+        from django.db.models import Count
+
+        user = request.user
+        monthly = (
+            Referral.objects.filter(referrer=user)
+            .annotate(month=TruncMonth('created_at'))
+            .values('month')
+            .annotate(
+                total=Count('id'),
+                paid=Count('id', filter=Q(bonus_applied=True)),
+            )
+            .order_by('month')
+        )
+
+        result = []
+        for row in monthly:
+            result.append({
+                'month': row['month'].strftime('%Y-%m'),
+                'total': row['total'],
+                'paid': row['paid'],
+            })
+
+        return Response(result)
 
 
 class ReferralListView(APIView):
