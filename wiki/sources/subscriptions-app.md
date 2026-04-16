@@ -2,7 +2,10 @@
 title: Subscriptions App
 type: source
 app: subscriptions
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [source, subscriptions, payment]
 ---
 
 # Subscriptions App
