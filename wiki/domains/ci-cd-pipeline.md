@@ -1,7 +1,11 @@
 ---
 title: CI/CD Pipeline
+type: domain
 domain: infrastructure
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [domain, infrastructure, ci-cd]
 ---
 
 # CI/CD Pipeline
