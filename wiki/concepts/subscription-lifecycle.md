@@ -156,3 +156,6 @@ final_price = max(price, 1₽)
 - [[Remnawave Integration]] — CRUD подписок
 - [[Referral System]] — бонусы
 - [[Promo Code System]] — промокоды
+- [[User Model]] — trial flags (used_trial, used_trial_upgrade)
+- [[Telegram Bot Integration]] — уведомления (expiry, winback)
+- [[Security Review]] — fix: expires_at пересчитывается при оплате
