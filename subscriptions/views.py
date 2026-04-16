@@ -724,6 +724,16 @@ def process_payment_success(sub):
     sub.status = 'paid'
     sub.save()
 
+    # If this is a plan upgrade, cancel the old subscription
+    if sub.upgrade_from and sub.upgrade_from.status == 'paid':
+        sub.upgrade_from.status = 'cancelled'
+        sub.upgrade_from.save(update_fields=['status'])
+
+    # If this is a renewal, update payment_method to strip 'renewal_' prefix
+    if sub.payment_method.startswith('renewal_'):
+        sub.payment_method = sub.payment_method.replace('renewal_', '')
+        sub.save(update_fields=['payment_method'])
+
     # Mark trial upgrade as used after successful payment (atomic to prevent race)
     if sub.payment_method in ('stars', 'crypto', 'wata') and sub.price_paid == 1:
         from accounts.models import User
