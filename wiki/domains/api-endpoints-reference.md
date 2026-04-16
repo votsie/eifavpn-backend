@@ -1,7 +1,11 @@
 ---
 title: API Endpoints Reference
+type: domain
 domain: api
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [domain, api, endpoints]
 ---
 
 # API Endpoints Reference
