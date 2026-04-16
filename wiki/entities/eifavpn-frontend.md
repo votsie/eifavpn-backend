@@ -1,7 +1,10 @@
 ---
 title: EIFAVPN Frontend
 type: entity
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [entity, cross-project, frontend]
 ---
 
 # EIFAVPN Frontend
