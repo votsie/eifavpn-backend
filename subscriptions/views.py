@@ -682,7 +682,7 @@ class PaymentHistoryView(APIView):
 
     def get(self, request):
         subs = request.user.subscriptions.filter(
-            status__in=['paid', 'cancelled', 'expired']
+            status__in=['paid', 'expired']
         ).order_by('-created_at')
 
         result = []
