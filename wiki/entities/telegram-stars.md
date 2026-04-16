@@ -2,7 +2,10 @@
 title: Telegram Stars
 type: entity
 category: external-service
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [entity, external-service, payment]
 ---
 
 # Telegram Stars
