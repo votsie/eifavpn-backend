@@ -1,7 +1,10 @@
 ---
 title: JWT Authentication
 type: concept
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [concept, auth, jwt]
 ---
 
 # JWT Authentication
