@@ -93,7 +93,7 @@ def telegram_callback(request):
 
         return HttpResponseRedirect(
             f'{app_url}/cabinet/login?auth=telegram'
-            f'&access={tokens["access"]}'
+            f'#access={tokens["access"]}'
             f'&refresh={tokens["refresh"]}'
         )
     except Exception:

@@ -1,3 +1,5 @@
+import hmac
+import hashlib
 from django.urls import path
 from django.conf import settings
 from django.http import HttpResponseRedirect
@@ -12,6 +14,31 @@ from .views import (
     LinkEmailView, LinkEmailVerifyView, LinkTelegramView,
 )
 from .models import User
+
+
+def _sign_state(state_value):
+    """Sign an OAuth state parameter with HMAC-SHA256."""
+    mac = hmac.new(
+        settings.SECRET_KEY.encode(), state_value.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+    return f'{state_value}:{mac}'
+
+
+def verify_oauth_state(state_str):
+    """Verify a signed OAuth state parameter. Returns the value or None."""
+    if not state_str or ':' not in state_str:
+        return None
+    # Split from the right — the last segment is the signature
+    parts = state_str.rsplit(':', 1)
+    if len(parts) != 2:
+        return None
+    value, signature = parts
+    expected = hmac.new(
+        settings.SECRET_KEY.encode(), value.encode(), hashlib.sha256
+    ).hexdigest()[:16]
+    if not hmac.compare_digest(signature, expected):
+        return None
+    return value
 
 
 def link_google_redirect(request):
@@ -38,7 +65,7 @@ def link_google_redirect(request):
         'scope': 'email profile',
         'access_type': 'offline',
         'prompt': 'select_account',
-        'state': f'link:{user.id}',
+        'state': _sign_state(f'link:{user.id}'),
     })
     return HttpResponseRedirect(f'https://accounts.google.com/o/oauth2/auth?{params}')
 

@@ -110,8 +110,7 @@ class EmailVerification(models.Model):
 
     @staticmethod
     def generate_code():
-        import random
-        return ''.join([str(random.randint(0, 9)) for _ in range(6)])
+        return ''.join([str(secrets.randbelow(10)) for _ in range(6)])
 
     def is_expired(self):
         from django.utils import timezone

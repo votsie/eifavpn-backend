@@ -59,11 +59,15 @@ def google_callback(request):
         if not email:
             return HttpResponseRedirect(f'{app_url}/cabinet/login?error=no_email')
 
-        # Check if this is a link request (state=link:{user_id})
+        # Check if this is a link request (state=link:{user_id}:{hmac})
         state = request.GET.get('state', '')
-        if state.startswith('link:'):
+        if state and 'link:' in state:
+            from accounts.urls import verify_oauth_state
+            verified_state = verify_oauth_state(state)
+            if not verified_state or not verified_state.startswith('link:'):
+                return HttpResponseRedirect(f'{app_url}/cabinet/settings?error=invalid_state')
             try:
-                link_user_id = int(state.split(':')[1])
+                link_user_id = int(verified_state.split(':')[1])
                 link_user = User.objects.get(id=link_user_id)
 
                 # Check google_id not already taken
@@ -79,7 +83,7 @@ def google_callback(request):
                 jwt_tokens = get_tokens_for_user(link_user)
                 return HttpResponseRedirect(
                     f'{app_url}/cabinet/settings?linked=google'
-                    f'&access={jwt_tokens["access"]}'
+                    f'#access={jwt_tokens["access"]}'
                     f'&refresh={jwt_tokens["refresh"]}'
                 )
             except (User.DoesNotExist, ValueError):
@@ -111,7 +115,7 @@ def google_callback(request):
         # Redirect to frontend with tokens in URL fragment (not query — more secure)
         return HttpResponseRedirect(
             f'{app_url}/cabinet/login?auth=google'
-            f'&access={jwt_tokens["access"]}'
+            f'#access={jwt_tokens["access"]}'
             f'&refresh={jwt_tokens["refresh"]}'
         )
     except Exception:

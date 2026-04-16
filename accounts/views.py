@@ -41,8 +41,6 @@ class SendCodeView(APIView):
 
         email_sent = False
         try:
-            import socket
-            socket.setdefaulttimeout(10)  # 10s timeout for SMTP
             send_mail(
                 subject='EIFAVPN — Код подтверждения',
                 message=f'Ваш код подтверждения: {code}\n\nКод действителен 10 минут.\n\nЕсли вы не запрашивали код, проигнорируйте это письмо.',
@@ -106,6 +104,7 @@ class VerifyCodeView(APIView):
 
         # Find or create user
         user = User.objects.filter(email=email).first()
+        is_new = user is None
 
         if user:
             # Existing user — login
@@ -129,7 +128,7 @@ class VerifyCodeView(APIView):
         return Response({
             'user': UserSerializer(user).data,
             'tokens': tokens,
-            'is_new': not User.objects.filter(email=email).exclude(pk=user.pk).exists(),
+            'is_new': is_new,
         })
 
 
@@ -271,14 +270,22 @@ class DeleteAccountView(APIView):
 
 
 class TelegramWebAppAuthView(APIView):
-    """POST /api/auth/telegram-webapp/ — auth via Telegram Mini App initData."""
+    """POST /api/auth/telegram-webapp/ — auth via Telegram Mini App initData OR Login Widget."""
     permission_classes = [AllowAny]
 
     def post(self, request):
         init_data_raw = request.data.get('initData', '')
-        if not init_data_raw:
-            return Response({'error': 'initData is required'}, status=status.HTTP_400_BAD_REQUEST)
+        widget_data = request.data.get('widgetData')
 
+        if widget_data:
+            return self._auth_widget(widget_data)
+        if init_data_raw:
+            return self._auth_init_data(init_data_raw)
+
+        return Response({'error': 'initData or widgetData is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    def _auth_init_data(self, init_data_raw):
+        """Authenticate via Telegram Mini App initData (HMAC validation)."""
         try:
             from init_data_py import InitData
 
@@ -290,16 +297,53 @@ class TelegramWebAppAuthView(APIView):
             if not tg_user or not tg_user.id:
                 return Response({'error': 'No user data in initData'}, status=status.HTTP_400_BAD_REQUEST)
 
+            telegram_id = tg_user.id
+            first_name = getattr(tg_user, 'first_name', '') or ''
+
         except Exception as e:
             return Response({'error': f'initData validation failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Find or create user by telegram_id
-        telegram_id = tg_user.id
+        return self._find_or_create_user(telegram_id, first_name)
+
+    def _auth_widget(self, widget_data):
+        """Authenticate via Telegram Login Widget (hash-based verification)."""
+        import hashlib
+        import hmac as hmac_mod
+        import time
+
+        if not isinstance(widget_data, dict) or 'hash' not in widget_data or 'id' not in widget_data:
+            return Response({'error': 'Invalid widget data'}, status=status.HTTP_400_BAD_REQUEST)
+
+        received_hash = widget_data['hash']
+        if not isinstance(received_hash, str):
+            return Response({'error': 'Invalid widget data'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Verify auth_date is not too old (24 hours, one-directional — no future dates)
+        auth_date = int(widget_data.get('auth_date', 0))
+        if time.time() - auth_date > 86400 or auth_date < 0:
+            return Response({'error': 'Widget auth expired'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        # Verify hash: https://core.telegram.org/widgets/login#checking-authorization
+        check_fields = {k: str(v) for k, v in widget_data.items() if k != 'hash' and v is not None}
+        data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(check_fields.items()))
+
+        secret_key = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
+        computed_hash = hmac_mod.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+        if not hmac_mod.compare_digest(computed_hash, received_hash):
+            return Response({'error': 'Invalid widget hash'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        telegram_id = int(widget_data['id'])
+        first_name = str(widget_data.get('first_name', ''))
+
+        return self._find_or_create_user(telegram_id, first_name)
+
+    def _find_or_create_user(self, telegram_id, first_name=''):
+        """Find or create user by telegram_id, return JWT tokens."""
         user = User.objects.filter(telegram_id=telegram_id).first()
 
         if not user:
             email = f'tg_{telegram_id}@eifavpn.ru'
-            first_name = getattr(tg_user, 'first_name', '') or ''
             user = User.objects.create_user(
                 email=email,
                 first_name=first_name,
@@ -307,8 +351,6 @@ class TelegramWebAppAuthView(APIView):
                 email_verified=True,
             )
         else:
-            # Update name if changed
-            first_name = getattr(tg_user, 'first_name', '') or ''
             if first_name and user.first_name != first_name:
                 user.first_name = first_name
                 user.save(update_fields=['first_name'])
@@ -403,8 +445,6 @@ class LinkEmailView(APIView):
 
         # Send email
         try:
-            import socket
-            socket.setdefaulttimeout(10)
             send_mail(
                 subject='EIFAVPN — Привязка email',
                 message=f'Код привязки email: {code}',

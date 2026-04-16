@@ -273,7 +273,7 @@ class PurchaseView(APIView):
         from datetime import datetime, timedelta, timezone
         Subscription.objects.filter(user=user, status='pending').update(status='cancelled')
 
-        # Create pending subscription
+        # Create pending subscription (expires_at is placeholder — recalculated on payment success)
         sub = Subscription.objects.create(
             user=user,
             plan=plan,
@@ -653,7 +653,13 @@ def create_wata_invoice(sub, amount_rub):
 
 def process_payment_success(sub):
     """After successful payment: create or update Remnawave subscription + referral bonus."""
+    from datetime import datetime, timedelta, timezone
+
     user = sub.user
+
+    # Recalculate expires_at from NOW (payment time), not from when purchase was initiated
+    if sub.period_months > 0:
+        sub.expires_at = datetime.now(timezone.utc) + timedelta(days=sub.period_months * 30)
 
     try:
         if user.remnawave_uuid:
@@ -750,6 +756,13 @@ def webhook_stars(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False}, status=405)
 
+    # Verify webhook secret token (set via setWebhook secret_token param)
+    webhook_secret = getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '')
+    if webhook_secret:
+        received_secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+        if received_secret != webhook_secret:
+            return JsonResponse({'ok': False, 'error': 'Invalid secret'}, status=403)
+
     try:
         data = json.loads(request.body)
 
@@ -830,6 +843,9 @@ def webhook_wata(request):
 
     Payload: {transactionStatus, orderId, transactionId, amount, ...}
     orderId format: "eifavpn_{sub_id}"
+
+    Security: verify payment by calling Wata API to confirm transaction status
+    (server-to-server verification — don't trust webhook body alone).
     """
     if request.method != 'POST':
         return JsonResponse({'ok': False}, status=405)
@@ -838,7 +854,7 @@ def webhook_wata(request):
         data = json.loads(request.body)
         order_id = data.get('orderId', '')
         tx_status = data.get('transactionStatus', '')
-        tx_id = data.get('transactionId', '')
+        tx_id = data.get('transactionId', '') or data.get('id', '')
 
         import logging
         logging.info(f'Wata webhook: orderId={order_id} status={tx_status} txId={tx_id}')
@@ -846,8 +862,14 @@ def webhook_wata(request):
         if tx_status == 'Paid' and order_id.startswith('eifavpn_'):
             sub_id = order_id.replace('eifavpn_', '')
             sub = Subscription.objects.filter(id=sub_id, status='pending').first()
-            if sub:
-                sub.payment_id = tx_id or data.get('id', '')
+            if sub and tx_id:
+                # Server-to-server verification: confirm payment via Wata API
+                verified = _verify_wata_payment(tx_id, float(sub.price_paid))
+                if not verified:
+                    logging.warning(f'Wata webhook: payment verification failed for txId={tx_id}')
+                    return JsonResponse({'ok': False, 'error': 'Payment verification failed'}, status=403)
+
+                sub.payment_id = tx_id
                 process_payment_success(sub)
 
         return JsonResponse({'ok': True})
@@ -855,3 +877,32 @@ def webhook_wata(request):
         import logging
         logging.error(f'Wata webhook error: {e}')
         return JsonResponse({'ok': False}, status=500)
+
+
+def _verify_wata_payment(transaction_id, expected_amount):
+    """Verify payment by calling Wata API to confirm transaction status and amount."""
+    token = settings.WATA_TOKEN
+    if not token:
+        return False
+    try:
+        resp = requests.get(
+            f'https://api.wata.pro/api/h2h/links/{transaction_id}',
+            headers={
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json',
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            return False
+        data = resp.json()
+        # Verify status is paid and amount matches
+        if data.get('transactionStatus') != 'Paid':
+            return False
+        paid_amount = float(data.get('amount', 0))
+        if abs(paid_amount - expected_amount) > 1:  # Allow 1 RUB tolerance
+            return False
+        return True
+    except Exception:
+        # If verification API is down, reject — fail closed
+        return False

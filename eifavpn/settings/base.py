@@ -89,6 +89,7 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
 EMAIL_USE_SSL = os.environ.get('EMAIL_USE_SSL', 'False') == 'True'
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'noreply@eifavpn.ru')
+EMAIL_TIMEOUT = 10
 
 # Payment providers
 CRYPTOPAY_TOKEN = os.environ.get('CRYPTOPAY_TOKEN', '')
@@ -96,6 +97,9 @@ WATA_TOKEN = os.environ.get('WATA_TOKEN', '')
 
 # Remnawave squads (default fallback)
 REMNAWAVE_DEFAULT_SQUAD = os.environ.get('REMNAWAVE_DEFAULT_SQUAD', '')
+
+# Webhook secret (set when calling setWebhook with secret_token param)
+TELEGRAM_WEBHOOK_SECRET = os.environ.get('TELEGRAM_WEBHOOK_SECRET', '')
 
 # App URL
 APP_URL = os.environ.get('APP_URL', 'http://localhost:5173')
@@ -121,3 +125,42 @@ SIMPLE_JWT = {
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
+
+# Logging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{asctime} {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'subscriptions': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'accounts': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
