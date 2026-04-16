@@ -1,7 +1,10 @@
 ---
 title: Authentication Flows
 type: concept
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [concept, auth, oauth, jwt]
 ---
 
 # Authentication Flows
