@@ -124,3 +124,7 @@ Client              Backend              Telegram OAuth
 - [[Accounts App]] — views
 - [[API App]] — OAuth callbacks
 - [[JWT Authentication]] — конфигурация токенов
+- [[User Model]] — модель пользователя (multi-auth fields)
+- [[EmailVerification Model]] — 6-значные коды
+- [[Telegram Bot Integration]] — Mini App initData
+- [[Security Review]] — аудит: HMAC state, tokens в fragments
