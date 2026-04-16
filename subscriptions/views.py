@@ -605,8 +605,10 @@ class UpgradeView(APIView):
 
         calc = get_upgrade_price(active_sub, new_plan, new_period)
 
-        if calc['is_upgrade'] and calc['charge_amount'] > 0:
-            # Upgrade: create pending sub, generate invoice for difference
+        if not calc['is_upgrade']:
+            return Response({'error': 'Понижение тарифа недоступно'}, status=400)
+
+        if calc['charge_amount'] > 0:
             sub = Subscription.objects.create(
                 user=user,
                 plan=new_plan,
@@ -642,38 +644,8 @@ class UpgradeView(APIView):
                 'payment_id': invoice.get('payment_id'),
                 'subscription_id': sub.id,
             })
-        else:
-            # Downgrade or free switch: apply immediately
-            try:
-                remnawave.update_subscription(user.remnawave_uuid, new_plan, new_period)
-            except Exception as e:
-                return Response({'error': f'Remnawave error: {str(e)}'}, status=500)
 
-            # Create paid sub record
-            sub = Subscription.objects.create(
-                user=user,
-                plan=new_plan,
-                period_months=new_period,
-                price_paid=0,
-                payment_method='downgrade',
-                status='paid',
-                expires_at=now_dt + timedelta(days=new_period * 30),
-                upgrade_from=active_sub,
-            )
-
-            # Apply credit as bonus days
-            if calc['credit_days'] > 0 and user.remnawave_uuid:
-                try:
-                    remnawave.extend_subscription(user.remnawave_uuid, calc['credit_days'])
-                except Exception:
-                    pass
-
-            return Response({
-                'type': 'downgrade',
-                'credit_days': calc['credit_days'],
-                'new_plan': new_plan,
-                'applied': True,
-            })
+        return Response({'error': 'Нечего оплачивать'}, status=400)
 
 
 class PaymentHistoryView(APIView):
