@@ -44,6 +44,7 @@ updated: 2026-04-16
 - [[Remnawave Integration]] — API-клиент и CRUD подписок
 - [[Proxy System]] — Secure gateway к Remnawave с whitelist + ownership
 - [[JWT Authentication]] — simplejwt конфигурация
+- [[Security Review]] — Аудит безопасности 2026-04-16 (P0-P2 fixes)
 
 ## Domains (Infrastructure)
 
