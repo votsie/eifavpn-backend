@@ -79,7 +79,7 @@ Client              Backend              Google
   │◀─302 /cabinet/login?auth=google&access=...&refresh=...
 ```
 
-**Account linking**: `state=link:{user_id}` → обновление google_id
+**Account linking**: `state=link:{user_id}:{hmac}` → HMAC-подписанный state (см. [[Security Review]])
 **Источник**: `api/views/google_auth.py`
 
 ## 5. Telegram OAuth 2.0
