@@ -22,6 +22,7 @@ INSTALLED_APPS = [
     'accounts',
     'subscriptions',
     'api',
+    'admin_api',
 ]
 
 AUTH_USER_MODEL = 'accounts.User'
