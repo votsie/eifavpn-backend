@@ -2,7 +2,10 @@
 title: Accounts App
 type: source
 app: accounts
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [source, accounts, auth]
 ---
 
 # Accounts App
