@@ -62,6 +62,7 @@ updated: 2026-04-16
 3. **[[Referral System]]** — 10% скидка рефералу, +7 дней реферреру
 4. **[[Promo Code System]]** — percent/days/gift типы промокодов
 5. **[[Remnawave Integration]]** — CRUD подписок через внешний API
+6. **[[Security Review]]** — Аудит безопасности (JWT transport, webhook verification, HMAC state)
 
 ## Фронтенд
 
