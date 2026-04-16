@@ -98,3 +98,5 @@ Referrer                    Referred                  Backend
 
 - [[Subscription Lifecycle]] — когда применяется бонус
 - [[Accounts App]] — ReferralMyView, ReferralListView
+- [[Telegram Bot Integration]] — inline sharing (PrepareShareView)
+- [[Subscription Model]] — привязка к реферальному бонусу
