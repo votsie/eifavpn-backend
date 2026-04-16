@@ -1,7 +1,10 @@
 ---
 title: Subscription Lifecycle
 type: concept
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [concept, subscription, payment, trial]
 ---
 
 # Subscription Lifecycle
