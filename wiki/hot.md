@@ -55,6 +55,18 @@ tags: [meta, hot-cache]
 - **API modules**: client.js (auto-refresh), auth.js (15+), subscriptions.js, referrals.js, admin.js (30+)
 - **Deploy**: GitHub Actions → SCP → same server 5.101.81.90
 
+## Security Hardening (2026-04-16)
+- JWT tokens → URL fragments (not query params)
+- Wata webhook: server-to-server verification
+- Stars webhook: secret token verification
+- Google OAuth state: HMAC-signed
+- Email codes: `secrets.randbelow` (crypto-safe)
+- Production: HSTS, SSL redirect, secure cookies
+- expires_at: recalculated from payment time
+- Django admin: all models registered
+- See: [[Security Review]]
+
 ## Latest Ingest
+- 2026-04-16: Security audit + wiki lint — 13 code fixes, 33 wiki pages updated
 - 2026-04-16: Full project scan — all modules documented
 - 2026-04-16: Frontend cross-references added
