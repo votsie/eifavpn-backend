@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, Subscription, Referral, EmailVerification
+from .models import User, Subscription, Referral, EmailVerification, SupportTicket, TicketMessage
 
 
 @admin.register(User)
@@ -40,3 +40,19 @@ class EmailVerificationAdmin(admin.ModelAdmin):
     list_filter = ['used']
     search_fields = ['email']
     ordering = ['-created_at']
+
+
+class TicketMessageInline(admin.TabularInline):
+    model = TicketMessage
+    extra = 0
+    readonly_fields = ['sender', 'is_staff', 'created_at']
+
+
+@admin.register(SupportTicket)
+class SupportTicketAdmin(admin.ModelAdmin):
+    list_display = ['id', 'user', 'subject', 'category', 'priority', 'status', 'assigned_to', 'created_at', 'updated_at']
+    list_filter = ['status', 'priority', 'category']
+    search_fields = ['subject', 'user__email']
+    raw_id_fields = ['user', 'assigned_to']
+    inlines = [TicketMessageInline]
+    ordering = ['-updated_at']

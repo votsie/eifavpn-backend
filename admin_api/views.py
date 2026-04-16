@@ -16,7 +16,7 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.models import User, Subscription, Referral
+from accounts.models import User, Subscription, Referral, SupportTicket, TicketMessage
 
 try:
     from accounts.models import PromoCode, PromoCodeUsage
@@ -1199,3 +1199,295 @@ class BulkExtendView(APIView):
             'failed': failed,
             'errors': errors,
         })
+
+
+# ---------------------------------------------------------------------------
+# Support Tickets
+# ---------------------------------------------------------------------------
+
+def serialize_ticket(t):
+    return {
+        'id': t.id,
+        'user_id': t.user_id,
+        'user_email': t.user.email,
+        'user_telegram_id': t.user.telegram_id,
+        'subject': t.subject,
+        'category': t.category,
+        'priority': t.priority,
+        'status': t.status,
+        'assigned_to_id': t.assigned_to_id,
+        'assigned_to_email': t.assigned_to.email if t.assigned_to else None,
+        'telegram_chat_id': t.telegram_chat_id,
+        'message_count': t.messages.count(),
+        'last_message': t.messages.order_by('-created_at').values('text', 'is_staff', 'created_at').first(),
+        'created_at': t.created_at.isoformat(),
+        'updated_at': t.updated_at.isoformat(),
+    }
+
+
+def serialize_message(m):
+    return {
+        'id': m.id,
+        'sender_id': m.sender_id,
+        'sender_email': m.sender.email if m.sender else None,
+        'is_staff': m.is_staff,
+        'text': m.text,
+        'telegram_message_id': m.telegram_message_id,
+        'created_at': m.created_at.isoformat(),
+    }
+
+
+class TicketListView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        qs = SupportTicket.objects.select_related('user', 'assigned_to')
+
+        status = request.query_params.get('status')
+        if status:
+            qs = qs.filter(status=status)
+
+        priority = request.query_params.get('priority')
+        if priority:
+            qs = qs.filter(priority=priority)
+
+        category = request.query_params.get('category')
+        if category:
+            qs = qs.filter(category=category)
+
+        assigned = request.query_params.get('assigned_to')
+        if assigned == 'me':
+            qs = qs.filter(assigned_to=request.user)
+        elif assigned == 'unassigned':
+            qs = qs.filter(assigned_to__isnull=True)
+
+        search = request.query_params.get('search', '').strip()
+        if search:
+            qs = qs.filter(
+                Q(subject__icontains=search) |
+                Q(user__email__icontains=search) |
+                Q(id__icontains=search)
+            )
+
+        qs = qs.order_by('-updated_at')
+        items, meta = paginate_qs(qs, request)
+        return Response({
+            'results': [serialize_ticket(t) for t in items],
+            **meta,
+        })
+
+
+class TicketStatsView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        now = timezone.now()
+        return Response({
+            'open': SupportTicket.objects.filter(status='open').count(),
+            'in_progress': SupportTicket.objects.filter(status='in_progress').count(),
+            'waiting': SupportTicket.objects.filter(status='waiting').count(),
+            'resolved_today': SupportTicket.objects.filter(
+                status__in=['resolved', 'closed'],
+                updated_at__date=now.date(),
+            ).count(),
+            'total': SupportTicket.objects.count(),
+            'avg_response_time': None,  # Could compute from first staff message
+        })
+
+
+class TicketDetailView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request, pk):
+        try:
+            ticket = SupportTicket.objects.select_related('user', 'assigned_to').get(pk=pk)
+        except SupportTicket.DoesNotExist:
+            return Response({'error': 'Ticket not found'}, status=404)
+
+        data = serialize_ticket(ticket)
+        data['messages'] = [serialize_message(m) for m in ticket.messages.select_related('sender').all()]
+        # Add user context
+        data['user_detail'] = serialize_user_short(ticket.user)
+        active_sub = ticket.user.subscriptions.filter(
+            status='paid', expires_at__gt=timezone.now()
+        ).first()
+        data['user_subscription'] = serialize_subscription(active_sub) if active_sub else None
+        return Response(data)
+
+    def patch(self, request, pk):
+        try:
+            ticket = SupportTicket.objects.get(pk=pk)
+        except SupportTicket.DoesNotExist:
+            return Response({'error': 'Ticket not found'}, status=404)
+
+        allowed = ['status', 'priority', 'category', 'assigned_to_id', 'subject']
+        updated = []
+        for field in allowed:
+            if field in request.data:
+                val = request.data[field]
+                if field == 'assigned_to_id' and val == 'me':
+                    val = request.user.id
+                elif field == 'assigned_to_id' and val in (None, '', 'none'):
+                    val = None
+                setattr(ticket, field, val)
+                updated.append(field)
+
+        if updated:
+            ticket.save(update_fields=updated + ['updated_at'])
+            _log_admin_action(request.user, 'update_ticket', {
+                'ticket_id': pk, 'fields': updated,
+            })
+
+        return Response(serialize_ticket(
+            SupportTicket.objects.select_related('user', 'assigned_to').get(pk=pk)
+        ))
+
+
+class TicketReplyView(APIView):
+    """POST /admin/tickets/{id}/reply/ — admin sends a message on a ticket."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk):
+        try:
+            ticket = SupportTicket.objects.select_related('user').get(pk=pk)
+        except SupportTicket.DoesNotExist:
+            return Response({'error': 'Ticket not found'}, status=404)
+
+        text = request.data.get('text', '').strip()
+        if not text:
+            return Response({'error': 'Text is required'}, status=400)
+
+        msg = TicketMessage.objects.create(
+            ticket=ticket,
+            sender=request.user,
+            is_staff=True,
+            text=text,
+        )
+
+        # Update ticket status
+        if ticket.status == 'open':
+            ticket.status = 'in_progress'
+        if request.data.get('set_status'):
+            ticket.status = request.data['set_status']
+        if not ticket.assigned_to:
+            ticket.assigned_to = request.user
+        ticket.save()
+
+        # Send via Telegram if user has telegram_id
+        tg_sent = False
+        if ticket.user.telegram_id:
+            bot_token = settings.TELEGRAM_BOT_TOKEN
+            if bot_token:
+                try:
+                    tg_text = (
+                        f'💬 <b>Ответ по тикету #{ticket.id}</b>\n'
+                        f'<i>{ticket.subject}</i>\n\n'
+                        f'{text}\n\n'
+                        f'— Поддержка EIFAVPN'
+                    )
+                    resp = requests.post(
+                        f'https://api.telegram.org/bot{bot_token}/sendMessage',
+                        json={
+                            'chat_id': ticket.user.telegram_id,
+                            'text': tg_text,
+                            'parse_mode': 'HTML',
+                        },
+                        timeout=10,
+                    )
+                    if resp.ok:
+                        tg_data = resp.json()
+                        msg.telegram_message_id = tg_data.get('result', {}).get('message_id')
+                        msg.save(update_fields=['telegram_message_id'])
+                        tg_sent = True
+                except Exception as e:
+                    logger.warning(f'Failed to send TG reply for ticket {pk}: {e}')
+
+        _log_admin_action(request.user, 'ticket_reply', {
+            'ticket_id': pk, 'tg_sent': tg_sent,
+        })
+
+        return Response({
+            'message': serialize_message(msg),
+            'telegram_sent': tg_sent,
+        })
+
+
+class TicketWebhookView(APIView):
+    """POST /admin/tickets/webhook/ — bot creates a ticket from Telegram message.
+
+    Expected payload (from the bot):
+    {
+        "telegram_id": 12345,
+        "chat_id": 12345,
+        "message_id": 67890,
+        "text": "Не могу подключиться к VPN",
+        "category": "connection"  // optional
+    }
+
+    Auth: via TELEGRAM_WEBHOOK_SECRET header or bot token.
+    """
+    permission_classes = []  # Public — verified by secret
+
+    def post(self, request):
+        # Verify secret
+        secret = getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '')
+        if secret:
+            received = request.headers.get('X-Webhook-Secret', '')
+            if received != secret:
+                return Response({'error': 'Unauthorized'}, status=403)
+
+        telegram_id = request.data.get('telegram_id')
+        chat_id = request.data.get('chat_id')
+        message_id = request.data.get('message_id')
+        text = request.data.get('text', '').strip()
+        category = request.data.get('category', 'other')
+
+        if not telegram_id or not text:
+            return Response({'error': 'telegram_id and text required'}, status=400)
+
+        # Find or identify user
+        user = User.objects.filter(telegram_id=telegram_id).first()
+        if not user:
+            return Response({'error': 'User not found'}, status=404)
+
+        # Check for existing open ticket from this user — append message instead of creating new
+        existing = SupportTicket.objects.filter(
+            user=user,
+            status__in=['open', 'in_progress', 'waiting'],
+        ).first()
+
+        if existing:
+            TicketMessage.objects.create(
+                ticket=existing,
+                sender=user,
+                is_staff=False,
+                text=text,
+                telegram_message_id=message_id,
+            )
+            existing.status = 'open'  # Re-open if was waiting
+            existing.save(update_fields=['status', 'updated_at'])
+            return Response({
+                'action': 'message_added',
+                'ticket_id': existing.id,
+            })
+
+        # Create new ticket
+        subject = text[:100] + ('...' if len(text) > 100 else '')
+        ticket = SupportTicket.objects.create(
+            user=user,
+            subject=subject,
+            category=category,
+            telegram_chat_id=chat_id,
+        )
+        TicketMessage.objects.create(
+            ticket=ticket,
+            sender=user,
+            is_staff=False,
+            text=text,
+            telegram_message_id=message_id,
+        )
+
+        return Response({
+            'action': 'ticket_created',
+            'ticket_id': ticket.id,
+        }, status=201)

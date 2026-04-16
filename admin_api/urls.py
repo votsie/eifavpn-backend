@@ -53,4 +53,11 @@ urlpatterns = [
 
     # Bulk operations
     path('bulk/extend/', views.BulkExtendView.as_view()),
+
+    # Support tickets
+    path('tickets/', views.TicketListView.as_view()),
+    path('tickets/stats/', views.TicketStatsView.as_view()),
+    path('tickets/webhook/', views.TicketWebhookView.as_view()),
+    path('tickets/<int:pk>/', views.TicketDetailView.as_view()),
+    path('tickets/<int:pk>/reply/', views.TicketReplyView.as_view()),
 ]

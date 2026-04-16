@@ -116,3 +116,53 @@ class EmailVerification(models.Model):
         from django.utils import timezone
         from datetime import timedelta
         return timezone.now() > self.created_at + timedelta(minutes=10)
+
+
+class SupportTicket(models.Model):
+    PRIORITY_CHOICES = [('low', 'Low'), ('normal', 'Normal'), ('high', 'High'), ('urgent', 'Urgent')]
+    STATUS_CHOICES = [
+        ('open', 'Open'), ('in_progress', 'In Progress'),
+        ('waiting', 'Waiting for User'), ('resolved', 'Resolved'), ('closed', 'Closed'),
+    ]
+    CATEGORY_CHOICES = [
+        ('connection', 'Проблемы с подключением'),
+        ('payment', 'Вопросы оплаты'),
+        ('account', 'Проблемы с аккаунтом'),
+        ('speed', 'Скорость/качество'),
+        ('feature', 'Предложение'),
+        ('other', 'Другое'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='tickets')
+    subject = models.CharField(max_length=255)
+    category = models.CharField(max_length=32, choices=CATEGORY_CHOICES, default='other')
+    priority = models.CharField(max_length=16, choices=PRIORITY_CHOICES, default='normal')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='open')
+    assigned_to = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL, related_name='assigned_tickets'
+    )
+    telegram_chat_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f'#{self.id} {self.subject} ({self.status})'
+
+
+class TicketMessage(models.Model):
+    ticket = models.ForeignKey(SupportTicket, on_delete=models.CASCADE, related_name='messages')
+    sender = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    is_staff = models.BooleanField(default=False)
+    text = models.TextField()
+    telegram_message_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        who = 'Staff' if self.is_staff else 'User'
+        return f'{who}: {self.text[:50]}'
