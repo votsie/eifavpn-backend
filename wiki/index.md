@@ -60,3 +60,5 @@ updated: 2026-04-16
 
 - [[hot]] — Hot cache для быстрого старта сессии
 - [[log]] — Лог всех ingests
+- [[Lint Report 2026-04-16]] — Результаты wiki lint
+- [[Dashboard]] — Dataview queries dashboard
