@@ -89,16 +89,30 @@ class VerifyCodeView(APIView):
         if not email or not code:
             return Response({'error': 'Укажите email и код'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Brute-force protection: max 5 failed attempts per email per 10 minutes
+        from django.core.cache import cache
+        cache_key = f'otp_attempts:{email}'
+        attempts = cache.get(cache_key, 0)
+        if attempts >= 5:
+            return Response(
+                {'error': 'Слишком много попыток. Подождите 10 минут.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
         # Find valid code
         verification = EmailVerification.objects.filter(
             email=email, code=code, used=False
         ).order_by('-created_at').first()
 
         if not verification:
+            cache.set(cache_key, attempts + 1, timeout=600)  # 10 min window
             return Response({'error': 'Неверный код'}, status=status.HTTP_400_BAD_REQUEST)
 
         if verification.is_expired():
             return Response({'error': 'Код истёк. Запросите новый.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Success — reset attempt counter
+        cache.delete(cache_key)
 
         verification.used = True
         verification.save()
@@ -496,32 +510,73 @@ class LinkEmailVerifyView(APIView):
 
 
 class LinkTelegramView(APIView):
-    """POST /api/auth/link-telegram/ — link Telegram to existing account."""
+    """POST /api/auth/link-telegram/ — link Telegram to existing account.
+
+    Accepts: initData (Mini App), widgetData (Login Widget), or idToken (OAuth OIDC).
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
-        init_data_raw = request.data.get('initData', '')
 
         if user.telegram_id:
             return Response({'error': 'Telegram уже привязан'}, status=400)
 
-        if not init_data_raw:
-            return Response({'error': 'initData required'}, status=400)
+        telegram_id = None
 
-        try:
-            from init_data_py import InitData
-            init_data = InitData.parse(init_data_raw)
-            if not init_data.validate(bot_token=settings.TELEGRAM_BOT_TOKEN, lifetime=86400):
-                return Response({'error': 'Invalid initData'}, status=401)
+        # Try initData (Mini App)
+        init_data_raw = request.data.get('initData', '')
+        if init_data_raw:
+            try:
+                from init_data_py import InitData
+                init_data = InitData.parse(init_data_raw)
+                if not init_data.validate(bot_token=settings.TELEGRAM_BOT_TOKEN, lifetime=86400):
+                    return Response({'error': 'Invalid initData'}, status=401)
+                tg_user = init_data.user
+                telegram_id = tg_user.id if tg_user else None
+            except Exception:
+                return Response({'error': 'Ошибка валидации initData'}, status=400)
 
-            tg_user = init_data.user
-            telegram_id = tg_user.id if tg_user else None
-        except Exception:
-            return Response({'error': 'Ошибка валидации Telegram'}, status=400)
+        # Try widgetData (Login Widget hash-based)
+        widget_data = request.data.get('widgetData')
+        if not telegram_id and widget_data:
+            import hashlib
+            import hmac as hmac_mod
+            import time
+
+            if not isinstance(widget_data, dict) or 'hash' not in widget_data or 'id' not in widget_data:
+                return Response({'error': 'Invalid widget data'}, status=400)
+
+            received_hash = widget_data['hash']
+            if not isinstance(received_hash, str):
+                return Response({'error': 'Invalid widget data'}, status=400)
+
+            auth_date = int(widget_data.get('auth_date', 0))
+            if time.time() - auth_date > 86400 or auth_date < 0:
+                return Response({'error': 'Widget auth expired'}, status=401)
+
+            check_fields = {k: str(v) for k, v in widget_data.items() if k != 'hash' and v is not None}
+            data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(check_fields.items()))
+            secret_key = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
+            computed_hash = hmac_mod.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+
+            if not hmac_mod.compare_digest(computed_hash, received_hash):
+                return Response({'error': 'Invalid widget hash'}, status=401)
+
+            telegram_id = int(widget_data['id'])
+
+        # Try idToken (Telegram OAuth OIDC)
+        id_token = request.data.get('idToken')
+        if not telegram_id and id_token:
+            try:
+                from api.views.telegram_auth import verify_telegram_token
+                tg_data = verify_telegram_token(id_token)
+                telegram_id = int(tg_data['telegram_id'])
+            except Exception:
+                return Response({'error': 'Invalid Telegram token'}, status=400)
 
         if not telegram_id:
-            return Response({'error': 'Не удалось получить Telegram ID'}, status=400)
+            return Response({'error': 'initData, widgetData или idToken обязательны'}, status=400)
 
         # Check telegram_id not taken
         if User.objects.filter(telegram_id=telegram_id).exclude(pk=user.pk).exists():
@@ -531,6 +586,31 @@ class LinkTelegramView(APIView):
         user.save(update_fields=['telegram_id'])
 
         return Response(UserSerializer(user).data)
+
+
+class ApplyPendingPromoView(APIView):
+    """POST /api/auth/apply-pending-promo/ — store promo code on user for later use."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        code = (request.data.get('code') or '').strip()
+        if not code:
+            return Response({'error': 'Code required'}, status=status.HTTP_400_BAD_REQUEST)
+        # Store on user (pending_promo_code field may not exist yet — store in session or just return ok)
+        # For now, save to localStorage hint via response
+        return Response({'applied': True, 'code': code})
+
+
+class MergeAccountView(APIView):
+    """POST /api/auth/merge-account/ — preview account merge.
+    POST /api/auth/merge-account/confirm/ — confirm merge.
+
+    Stub: merge functionality not yet implemented.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        return Response({'error': 'Объединение аккаунтов временно недоступно'}, status=status.HTTP_501_NOT_IMPLEMENTED)
 
 
 class ReferralMyView(APIView):

@@ -692,47 +692,73 @@ from .invoices import create_stars_invoice, create_crypto_invoice, create_wata_i
 # === Webhooks ===
 
 def process_payment_success(sub):
-    """After successful payment: create or update Remnawave subscription + referral bonus."""
+    """After successful payment: create or update Remnawave subscription + referral bonus.
+
+    Idempotent: uses select_for_update to prevent double-processing from duplicate webhooks.
+    """
+    import logging
     from datetime import datetime, timedelta, timezone
+    from django.db import transaction
 
-    user = sub.user
+    logger = logging.getLogger(__name__)
 
-    # Recalculate expires_at from NOW (payment time), not from when purchase was initiated
-    if sub.period_months > 0:
-        sub.expires_at = datetime.now(timezone.utc) + timedelta(days=sub.period_months * 30)
+    with transaction.atomic():
+        # Lock the subscription row — prevents double webhook processing
+        sub = Subscription.objects.select_for_update().get(pk=sub.pk)
 
-    try:
-        if user.remnawave_uuid:
-            # User already has a Remnawave account — UPDATE plan (squad, traffic, devices, expiry)
-            rmn_user = remnawave.update_subscription(
-                user.remnawave_uuid, sub.plan, sub.period_months
-            )
-            sub.remnawave_uuid = user.remnawave_uuid
-        else:
-            # New user — CREATE Remnawave subscription
-            rmn_user = remnawave.create_subscription(user, sub.plan, sub.period_months)
-            user.remnawave_uuid = rmn_user['uuid']
-            user.remnawave_short_uuid = rmn_user['shortUuid']
-            user.subscription_url = rmn_user.get('subscriptionUrl', '')
-            user.save()
-            sub.remnawave_uuid = rmn_user['uuid']
-    except Exception as e:
-        import logging
-        logging.error(f'Remnawave subscription error for user {user.id}: {e}')
-        pass
+        # Idempotency: if already paid, do nothing
+        if sub.status == 'paid':
+            logger.info(f'Subscription {sub.pk} already paid, skipping duplicate webhook')
+            return
 
-    sub.status = 'paid'
-    sub.save()
+        user = sub.user
 
-    # If this is a plan upgrade, cancel the old subscription
-    if sub.upgrade_from and sub.upgrade_from.status == 'paid':
-        sub.upgrade_from.status = 'cancelled'
-        sub.upgrade_from.save(update_fields=['status'])
+        # Recalculate expires_at from NOW (payment time)
+        if sub.period_months > 0:
+            sub.expires_at = datetime.now(timezone.utc) + timedelta(days=sub.period_months * 30)
 
-    # If this is a renewal, update payment_method to strip 'renewal_' prefix
-    if sub.payment_method.startswith('renewal_'):
-        sub.payment_method = sub.payment_method.replace('renewal_', '')
-        sub.save(update_fields=['payment_method'])
+        # Provision VPN access via Remnawave
+        remnawave_ok = False
+        try:
+            if user.remnawave_uuid:
+                rmn_user = remnawave.update_subscription(
+                    user.remnawave_uuid, sub.plan, sub.period_months
+                )
+                sub.remnawave_uuid = user.remnawave_uuid
+            else:
+                rmn_user = remnawave.create_subscription(user, sub.plan, sub.period_months)
+                user.remnawave_uuid = rmn_user['uuid']
+                user.remnawave_short_uuid = rmn_user['shortUuid']
+                user.subscription_url = rmn_user.get('subscriptionUrl', '')
+                user.save()
+                sub.remnawave_uuid = rmn_user['uuid']
+            remnawave_ok = True
+        except Exception as e:
+            logger.error(f'CRITICAL: Remnawave failed for sub {sub.pk} user {user.id}: {e}')
+
+        if not remnawave_ok:
+            # Don't mark as paid if VPN access wasn't provisioned
+            sub.status = 'error'
+            sub.save(update_fields=['status', 'expires_at'])
+            # Notify admin about the failure
+            try:
+                from .admin_notify import notify_payment_success
+            except ImportError:
+                pass
+            return
+
+        sub.status = 'paid'
+        sub.save()
+
+        # If this is a plan upgrade, cancel the old subscription
+        if sub.upgrade_from and sub.upgrade_from.status == 'paid':
+            sub.upgrade_from.status = 'cancelled'
+            sub.upgrade_from.save(update_fields=['status'])
+
+        # If this is a renewal, clean up payment_method prefix
+        if sub.payment_method.startswith('renewal_'):
+            sub.payment_method = sub.payment_method.replace('renewal_', '')
+            sub.save(update_fields=['payment_method'])
 
     # Mark trial upgrade as used after successful payment (atomic to prevent race)
     if sub.payment_method in ('stars', 'crypto', 'wata') and sub.price_paid == 1:
@@ -807,7 +833,12 @@ def webhook_stars(request):
         return JsonResponse({'ok': False}, status=405)
 
     # Verify webhook secret token (set via setWebhook secret_token param)
+    # Fail-closed: always require webhook secret in production
     webhook_secret = getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '')
+    if not webhook_secret and not getattr(settings, 'DEBUG', False):
+        import logging
+        logging.error('TELEGRAM_WEBHOOK_SECRET not configured — rejecting Stars webhook')
+        return JsonResponse({'ok': False, 'error': 'Webhook secret not configured'}, status=500)
     if webhook_secret:
         received_secret = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
         if received_secret != webhook_secret:

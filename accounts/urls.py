@@ -12,6 +12,7 @@ from .views import (
     SendCodeView, VerifyCodeView,
     TelegramWebAppAuthView,
     LinkEmailView, LinkEmailVerifyView, LinkTelegramView,
+    ApplyPendingPromoView, MergeAccountView,
 )
 from .models import User
 
@@ -85,4 +86,7 @@ urlpatterns = [
     path('link-email/verify/', LinkEmailVerifyView.as_view(), name='link_email_verify'),
     path('link-telegram/', LinkTelegramView.as_view(), name='link_telegram'),
     path('link-google/', link_google_redirect, name='link_google'),
+    path('apply-pending-promo/', ApplyPendingPromoView.as_view(), name='apply_pending_promo'),
+    path('merge-account/', MergeAccountView.as_view(), name='merge_account'),
+    path('merge-account/confirm/', MergeAccountView.as_view(), name='merge_account_confirm'),
 ]

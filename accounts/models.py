@@ -76,6 +76,7 @@ class Subscription(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'), ('paid', 'Paid'),
         ('cancelled', 'Cancelled'), ('expired', 'Expired'),
+        ('error', 'Error'),
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='subscriptions')
