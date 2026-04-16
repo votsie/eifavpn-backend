@@ -18,7 +18,7 @@ updated: 2026-04-16
 | WSGI server | Gunicorn |
 | VPN panel | [[Remnawave]] (wavepanel.eifastore.ru) |
 | Payments | [[Telegram Stars]], [[CryptoPay]], [[Wata H2H]] |
-| Notifications | Telegram Bot API |
+| Notifications | [[Telegram Bot Integration]] |
 | CI/CD | GitHub Actions → SSH deploy |
 | Hosting | Single server 5.101.81.90 (dev + prod) |
 
