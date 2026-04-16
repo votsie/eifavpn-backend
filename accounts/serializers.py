@@ -48,11 +48,11 @@ class UserSerializer(serializers.ModelSerializer):
             'referral_code', 'referral_bonus_days',
             'used_trial', 'used_trial_upgrade',
             'has_subscription', 'current_plan',
-            'date_joined',
+            'date_joined', 'is_staff',
         ]
         read_only_fields = [
             'id', 'referral_code', 'remnawave_uuid', 'remnawave_short_uuid',
-            'subscription_url', 'date_joined',
+            'subscription_url', 'date_joined', 'is_staff',
         ]
 
     def get_has_subscription(self, obj):
