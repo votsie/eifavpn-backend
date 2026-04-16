@@ -104,16 +104,15 @@ Headers: {Authorization: Bearer {token}}
 - Проверка: `transactionStatus == 'Paid'`
 - Parse orderId: `eifavpn_{sub_id}`
 
-> [!gap] Security Note
-> Wata webhook не имеет проверки подписи в текущем коде.
-
 ## Сравнение методов
 
 | Метод | Валюта | Markup | Верификация webhook |
 |-------|--------|--------|-------------------|
-| Stars | XTR (Stars) | ~15% | Telegram Bot API |
+| Stars | XTR (Stars) | ~15% | X-Telegram-Bot-Api-Secret-Token |
 | CryptoPay | USDT/TON/BTC | 3% | HMAC-SHA256 |
-| Wata | RUB | 0% | Нет подписи |
+| Wata | RUB | 0% | Server-to-server (GET /h2h/links/{id}) |
+
+Все три метода верифицированы. Подробности: [[Security Review]].
 
 ## См. также
 
@@ -121,3 +120,6 @@ Headers: {Authorization: Bearer {token}}
 - [[Telegram Stars]] — детали Stars
 - [[CryptoPay]] — детали CryptoPay
 - [[Wata H2H]] — детали Wata
+- [[Remnawave Integration]] — активация подписки после оплаты
+- [[Subscriptions App]] — исходный код views и webhooks
+- [[Security Review]] — аудит безопасности платёжных webhooks
