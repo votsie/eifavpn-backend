@@ -283,8 +283,15 @@ def run_subscription_notifications():
     now = timezone.now()
     today = now.date()
 
-    # Get all paid subscriptions
-    subs = Subscription.objects.filter(status='paid').select_related('user')
+    # Only check subscriptions expiring within relevant window (-1 to +3 days)
+    from datetime import timedelta
+    window_start = now - timedelta(days=2)
+    window_end = now + timedelta(days=4)
+    subs = Subscription.objects.filter(
+        status='paid',
+        expires_at__date__gte=window_start.date(),
+        expires_at__date__lte=window_end.date(),
+    ).select_related('user')
 
     sent = {'3day': 0, '1day': 0, 'expired': 0, 'promo': 0}
 

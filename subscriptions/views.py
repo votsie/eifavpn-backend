@@ -58,7 +58,10 @@ class ExchangeRatesView(APIView):
     def get(self, request):
         rates = get_rates()
         # Also calculate example: 99 RUB in crypto
-        amount = float(request.query_params.get('amount', 0))
+        try:
+            amount = float(request.query_params.get('amount', 0))
+        except (TypeError, ValueError):
+            amount = 0
         result = {
             'rates': {
                 'USDT': rates.get('USDT', 0),
@@ -85,6 +88,9 @@ class ValidatePromoView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        if validate_promo_for_user is None:
+            return Response({'valid': False, 'error': 'Промокоды не доступны'})
+
         code = request.data.get('code', '').strip()
         plan = request.data.get('plan')
         period = request.data.get('period')
@@ -122,6 +128,9 @@ class ActivateGiftView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        if validate_promo_for_user is None:
+            return Response({'error': 'Промокоды не доступны'}, status=501)
+
         code = request.data.get('code', '').strip()
         if not code:
             return Response({'error': 'Введите промокод'}, status=400)
@@ -197,7 +206,7 @@ class PromoInfoView(APIView):
 
     def get(self, request):
         code = request.query_params.get('code', '').strip()
-        if not code:
+        if not code or PromoCode is None:
             return Response({'valid': False})
 
         try:
@@ -234,6 +243,10 @@ class PurchaseView(APIView):
 
         if plan not in PLANS:
             return Response({'error': 'Invalid plan'}, status=400)
+        try:
+            period = int(period)
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid period'}, status=400)
         if period not in [1, 3, 6, 12]:
             return Response({'error': 'Invalid period'}, status=400)
         if method not in ['stars', 'crypto', 'wata']:
@@ -572,6 +585,10 @@ class UpgradeView(APIView):
 
         if not new_plan or new_plan not in PLANS:
             return Response({'error': 'Invalid plan'}, status=400)
+        try:
+            new_period = int(new_period)
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid period'}, status=400)
         if new_period not in (1, 3, 6, 12):
             return Response({'error': 'Invalid period'}, status=400)
 
@@ -886,6 +903,7 @@ def webhook_stars(request):
                 sub = Subscription.objects.filter(id=sub_id, status='pending').first()
                 if sub:
                     sub.payment_id = payment.get('telegram_payment_charge_id', '')
+                    sub.save(update_fields=['payment_id'])
                     process_payment_success(sub)
 
         return JsonResponse({'ok': True})
@@ -920,6 +938,7 @@ def webhook_crypto(request):
             sub = Subscription.objects.filter(id=sub_id, status='pending').first()
             if sub:
                 sub.payment_id = str(invoice.get('invoice_id', ''))
+                sub.save(update_fields=['payment_id'])
                 process_payment_success(sub)
 
         return JsonResponse({'ok': True})
