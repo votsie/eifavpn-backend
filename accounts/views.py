@@ -124,7 +124,7 @@ class VerifyCodeView(APIView):
         if user:
             # Existing user — login
             user.email_verified = True
-            user.save()
+            user.save(update_fields=['email_verified'])
         else:
             # New user — register
             referred_by = None
@@ -322,34 +322,14 @@ class TelegramWebAppAuthView(APIView):
 
     def _auth_widget(self, widget_data):
         """Authenticate via Telegram Login Widget (hash-based verification)."""
-        import hashlib
-        import hmac as hmac_mod
-        import time
-
-        if not isinstance(widget_data, dict) or 'hash' not in widget_data or 'id' not in widget_data:
-            return Response({'error': 'Invalid widget data'}, status=status.HTTP_400_BAD_REQUEST)
-
-        received_hash = widget_data['hash']
-        if not isinstance(received_hash, str):
-            return Response({'error': 'Invalid widget data'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Verify auth_date is not too old (24 hours, one-directional — no future dates)
-        auth_date = int(widget_data.get('auth_date', 0))
-        if time.time() - auth_date > 86400 or auth_date < 0:
-            return Response({'error': 'Widget auth expired'}, status=status.HTTP_401_UNAUTHORIZED)
-
-        # Verify hash: https://core.telegram.org/widgets/login#checking-authorization
-        check_fields = {k: str(v) for k, v in widget_data.items() if k != 'hash' and v is not None}
-        data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(check_fields.items()))
-
-        secret_key = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
-        computed_hash = hmac_mod.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
-        if not hmac_mod.compare_digest(computed_hash, received_hash):
-            return Response({'error': 'Invalid widget hash'}, status=status.HTTP_401_UNAUTHORIZED)
-
-        telegram_id = int(widget_data['id'])
-        first_name = str(widget_data.get('first_name', ''))
+        from .telegram_utils import verify_widget_data
+        try:
+            telegram_id, first_name = verify_widget_data(widget_data)
+        except ValueError as e:
+            error_msg = str(e)
+            if 'expired' in error_msg:
+                return Response({'error': error_msg}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({'error': error_msg}, status=status.HTTP_400_BAD_REQUEST)
 
         return self._find_or_create_user(telegram_id, first_name)
 
@@ -540,30 +520,11 @@ class LinkTelegramView(APIView):
         # Try widgetData (Login Widget hash-based)
         widget_data = request.data.get('widgetData')
         if not telegram_id and widget_data:
-            import hashlib
-            import hmac as hmac_mod
-            import time
-
-            if not isinstance(widget_data, dict) or 'hash' not in widget_data or 'id' not in widget_data:
-                return Response({'error': 'Invalid widget data'}, status=400)
-
-            received_hash = widget_data['hash']
-            if not isinstance(received_hash, str):
-                return Response({'error': 'Invalid widget data'}, status=400)
-
-            auth_date = int(widget_data.get('auth_date', 0))
-            if time.time() - auth_date > 86400 or auth_date < 0:
-                return Response({'error': 'Widget auth expired'}, status=401)
-
-            check_fields = {k: str(v) for k, v in widget_data.items() if k != 'hash' and v is not None}
-            data_check_string = '\n'.join(f'{k}={v}' for k, v in sorted(check_fields.items()))
-            secret_key = hashlib.sha256(settings.TELEGRAM_BOT_TOKEN.encode()).digest()
-            computed_hash = hmac_mod.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
-            if not hmac_mod.compare_digest(computed_hash, received_hash):
-                return Response({'error': 'Invalid widget hash'}, status=401)
-
-            telegram_id = int(widget_data['id'])
+            from .telegram_utils import verify_widget_data
+            try:
+                telegram_id, _ = verify_widget_data(widget_data)
+            except ValueError as e:
+                return Response({'error': str(e)}, status=400)
 
         # Try idToken (Telegram OAuth OIDC)
         id_token = request.data.get('idToken')
@@ -621,26 +582,27 @@ class ReferralMyView(APIView):
         from django.db.models import Sum, Count
 
         user = request.user
-        all_referrals = Referral.objects.filter(referrer=user)
-        total_referrals = all_referrals.count()
-        paid_referrals = all_referrals.filter(bonus_applied=True).count()
         app_url = getattr(settings, 'APP_URL', 'https://eifavpn.ru')
-
-        # This month
         now = timezone.now()
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        referrals_this_month = all_referrals.filter(created_at__gte=month_start).count()
 
-        # Conversion rate
+        # Single aggregate query instead of 3 separate count() calls
+        stats = Referral.objects.filter(referrer=user).aggregate(
+            total=Count('id'),
+            paid=Count('id', filter=Q(bonus_applied=True)),
+            this_month=Count('id', filter=Q(created_at__gte=month_start)),
+        )
+        total_referrals = stats['total']
+        paid_referrals = stats['paid']
+        referrals_this_month = stats['this_month']
         conversion_rate = round(paid_referrals / max(total_referrals, 1) * 100, 1)
 
-        # Total savings by referees (10% of each referred user's first paid subscription)
-        from accounts.models import Subscription
-        referred_user_ids = list(all_referrals.values_list('referred_id', flat=True))
+        # Savings query (only if there are referrals)
         total_savings = 0
-        if referred_user_ids:
+        if total_referrals > 0:
+            from accounts.models import Subscription
             total_paid = Subscription.objects.filter(
-                user_id__in=referred_user_ids, status='paid'
+                user__referred_by_record__referrer=user, status='paid'
             ).exclude(payment_method='trial').aggregate(s=Sum('price_paid'))['s'] or 0
             total_savings = round(float(total_paid) * 0.10)
 

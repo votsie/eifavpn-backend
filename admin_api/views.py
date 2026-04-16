@@ -149,7 +149,7 @@ class RegistrationChartView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        days = int(request.query_params.get('days', 30))
+        days = min(max(int(request.query_params.get('days', 30)), 1), 365)
         since = timezone.now() - timedelta(days=days)
         qs = (
             User.objects
@@ -176,7 +176,7 @@ class RevenueChartView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        days = int(request.query_params.get('days', 30))
+        days = min(max(int(request.query_params.get('days', 30)), 1), 365)
         since = timezone.now() - timedelta(days=days)
         qs = (
             Subscription.objects
@@ -612,48 +612,57 @@ class CohortAnalysisView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        """Weekly cohorts for the last 12 weeks: registered -> paid conversion."""
-        weeks = int(request.query_params.get('weeks', 12))
-        now = timezone.now()
-        cohorts = []
+        """Weekly cohorts: registered -> trial -> paid. Single annotated query."""
+        from django.db.models.functions import TruncWeek
 
-        for w in range(weeks):
-            start = now - timedelta(weeks=w + 1)
-            end = now - timedelta(weeks=w)
-            registered = User.objects.filter(date_joined__gte=start, date_joined__lt=end)
-            reg_count = registered.count()
-            if reg_count == 0:
-                cohorts.append({
-                    'week': str(start.date()),
-                    'registered': 0,
-                    'trial': 0,
-                    'paid': 0,
-                    'trial_rate': 0,
-                    'paid_rate': 0,
-                })
-                continue
+        weeks = min(int(request.query_params.get('weeks', 12)), 52)
+        since = timezone.now() - timedelta(weeks=weeks)
 
-            reg_ids = list(registered.values_list('id', flat=True))
-            trial_count = User.objects.filter(id__in=reg_ids, used_trial=True).count()
-            paid_count = (
-                Subscription.objects
-                .filter(user_id__in=reg_ids, status='paid')
-                .exclude(payment_method='trial')
-                .values('user_id')
-                .distinct()
-                .count()
+        # One query: group users by registration week, count trials and paid users
+        cohort_data = (
+            User.objects
+            .filter(date_joined__gte=since)
+            .annotate(week=TruncWeek('date_joined'))
+            .values('week')
+            .annotate(
+                registered=Count('id'),
+                trial=Count('id', filter=Q(used_trial=True)),
             )
+            .order_by('week')
+        )
 
+        # Second query: paid users per cohort week (need join through subscription)
+        paid_by_week = {}
+        paid_data = (
+            User.objects
+            .filter(
+                date_joined__gte=since,
+                subscriptions__status='paid',
+            )
+            .exclude(subscriptions__payment_method='trial')
+            .annotate(week=TruncWeek('date_joined'))
+            .values('week')
+            .annotate(paid=Count('id', distinct=True))
+            .order_by('week')
+        )
+        for row in paid_data:
+            paid_by_week[str(row['week'].date())] = row['paid']
+
+        cohorts = []
+        for row in cohort_data:
+            week_str = str(row['week'].date())
+            reg = row['registered']
+            trial = row['trial']
+            paid = paid_by_week.get(week_str, 0)
             cohorts.append({
-                'week': str(start.date()),
-                'registered': reg_count,
-                'trial': trial_count,
-                'paid': paid_count,
-                'trial_rate': round(trial_count / reg_count * 100, 1),
-                'paid_rate': round(paid_count / reg_count * 100, 1),
+                'week': week_str,
+                'registered': reg,
+                'trial': trial,
+                'paid': paid,
+                'trial_rate': round(trial / max(reg, 1) * 100, 1),
+                'paid_rate': round(paid / max(reg, 1) * 100, 1),
             })
 
-        cohorts.reverse()
         return Response(cohorts)
 
 

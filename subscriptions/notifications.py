@@ -8,7 +8,12 @@ from django.utils import timezone
 from datetime import timedelta
 from django.db.models import F
 
-from accounts.models import User, Subscription, PromoCode, PromoCodeUsage
+from accounts.models import User, Subscription
+try:
+    from accounts.models import PromoCode, PromoCodeUsage
+except ImportError:
+    PromoCode = None
+    PromoCodeUsage = None
 
 logger = logging.getLogger(__name__)
 
