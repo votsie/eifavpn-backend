@@ -1,7 +1,11 @@
 ---
 title: Hot Cache
+type: meta
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
 purpose: Quick-load context for future sessions
+tags: [meta, hot-cache]
 ---
 
 # Hot Cache
