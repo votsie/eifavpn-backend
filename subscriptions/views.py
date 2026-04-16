@@ -837,6 +837,15 @@ def webhook_stars(request):
                 send_welcome(chat_id, first_name)
             return JsonResponse({'ok': True})
 
+        # Handle /connect command — send QR code with subscription link
+        if text and text.startswith('/connect'):
+            from_user = message.get('from', {})
+            telegram_id = from_user.get('id')
+            chat_id = message.get('chat', {}).get('id')
+            if telegram_id and chat_id:
+                _handle_connect_command(telegram_id, chat_id)
+            return JsonResponse({'ok': True})
+
         # Handle successful_payment
         payment = message.get('successful_payment')
         if payment:
@@ -956,3 +965,78 @@ def _verify_wata_payment(transaction_id, expected_amount):
     except Exception:
         # If verification API is down, reject — fail closed
         return False
+
+
+def _handle_connect_command(telegram_id, chat_id):
+    """Handle /connect bot command: send QR code with subscription link."""
+    from accounts.models import User
+    import logging
+
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    user = User.objects.filter(telegram_id=telegram_id).first()
+
+    if not user:
+        requests.post(
+            f'https://api.telegram.org/bot{bot_token}/sendMessage',
+            json={
+                'chat_id': chat_id,
+                'text': 'Аккаунт не найден. Зарегистрируйтесь через приложение.',
+                'parse_mode': 'HTML',
+            },
+            timeout=10,
+        )
+        return
+
+    sub_url = user.subscription_url
+    if not sub_url:
+        requests.post(
+            f'https://api.telegram.org/bot{bot_token}/sendMessage',
+            json={
+                'chat_id': chat_id,
+                'text': 'У вас нет активной подписки. Оформите подписку в приложении.',
+                'parse_mode': 'HTML',
+                'reply_markup': {
+                    'inline_keyboard': [[{
+                        'text': 'Открыть EIFAVPN',
+                        'url': 'https://t.me/eifavpn_bot/eifavpn',
+                    }]]
+                },
+            },
+            timeout=10,
+        )
+        return
+
+    # Generate QR code
+    from .qr_utils import generate_qr_code
+    qr_buf = generate_qr_code(sub_url)
+
+    if qr_buf:
+        # Send QR as photo
+        try:
+            requests.post(
+                f'https://api.telegram.org/bot{bot_token}/sendPhoto',
+                data={
+                    'chat_id': chat_id,
+                    'caption': (
+                        '<b>Ваша подписка EIFAVPN</b>\n\n'
+                        'Отсканируйте QR-код в VPN-клиенте (Hiddify, v2rayN) '
+                        'или скопируйте ссылку ниже.'
+                    ),
+                    'parse_mode': 'HTML',
+                },
+                files={'photo': ('qr.png', qr_buf, 'image/png')},
+                timeout=15,
+            )
+        except Exception as e:
+            logging.warning(f'Failed to send QR photo for user {user.id}: {e}')
+
+    # Always send text with the link (copyable)
+    requests.post(
+        f'https://api.telegram.org/bot{bot_token}/sendMessage',
+        json={
+            'chat_id': chat_id,
+            'text': f'<code>{sub_url}</code>',
+            'parse_mode': 'HTML',
+        },
+        timeout=10,
+    )
