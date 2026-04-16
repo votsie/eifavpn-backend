@@ -3,7 +3,10 @@ title: PromoCode Model
 type: entity
 app: accounts
 file: accounts/models.py
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [entity, model, promo]
 ---
 
 # PromoCode Model
