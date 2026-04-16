@@ -83,3 +83,5 @@ Response passthrough: status code + body от Remnawave.
 
 - [[Remnawave]] — внешний VPN panel
 - [[API App]] — маршрутизация
+- [[JWT Authentication]] — валидация токенов в proxy
+- [[User Model]] — ownership check через remnawave_uuid
