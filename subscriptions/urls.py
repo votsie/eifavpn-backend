@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     PlansView, PurchaseView, MySubscriptionView, TrialActivateView, TrialUpgradeView,
     ExchangeRatesView, ValidatePromoView, ActivateGiftView, PromoInfoView, UserDevicesView,
+    UpgradePreviewView, UpgradeView, PaymentHistoryView,
     webhook_stars, webhook_crypto, webhook_wata,
 )
 
@@ -16,6 +17,9 @@ urlpatterns = [
     path('validate-promo/', ValidatePromoView.as_view(), name='validate_promo'),
     path('activate-gift/', ActivateGiftView.as_view(), name='activate_gift'),
     path('promo-info/', PromoInfoView.as_view(), name='promo_info'),
+    path('upgrade-preview/', UpgradePreviewView.as_view(), name='upgrade_preview'),
+    path('upgrade/', UpgradeView.as_view(), name='upgrade'),
+    path('history/', PaymentHistoryView.as_view(), name='payment_history'),
     path('webhook/stars/', webhook_stars, name='webhook_stars'),
     path('webhook/crypto/', webhook_crypto, name='webhook_crypto'),
     path('webhook/wata/', webhook_wata, name='webhook_wata'),

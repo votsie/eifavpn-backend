@@ -16,7 +16,7 @@ try:
 except ImportError:
     PromoCode = None
     PromoCodeUsage = None
-from .plans import PLANS, PRICING, get_price, get_price_with_referral, REFERRAL_BONUS_DAYS
+from .plans import PLANS, PRICING, get_price, get_price_with_referral, REFERRAL_BONUS_DAYS, get_upgrade_price
 try:
     from .promo_utils import validate_promo_for_user, calculate_promo_price
 except ImportError:
@@ -523,130 +523,170 @@ class TrialUpgradeView(APIView):
         })
 
 
-# === Payment method helpers ===
+class UpgradePreviewView(APIView):
+    """GET /api/subscriptions/upgrade-preview/?plan=X&period=Y — calculate upgrade cost."""
+    permission_classes = [IsAuthenticated]
 
-def create_stars_invoice(sub, amount_rub):
-    """Create Telegram Stars invoice via Bot API.
+    def get(self, request):
+        new_plan = request.query_params.get('plan')
+        new_period = request.query_params.get('period')
 
-    Uses dynamic USDT/RUB rate: 50 stars = 0.75$ + 15% markup.
-    """
-    bot_token = settings.TELEGRAM_BOT_TOKEN
-    stars_amount = rub_to_stars(amount_rub)
+        if not new_plan or new_plan not in PLANS:
+            return Response({'error': 'Invalid plan'}, status=400)
+        try:
+            new_period = int(new_period)
+        except (TypeError, ValueError):
+            return Response({'error': 'Invalid period'}, status=400)
+        if new_period not in (1, 3, 6, 12):
+            return Response({'error': 'Invalid period'}, status=400)
 
-    try:
-        resp = requests.post(
-            f'https://api.telegram.org/bot{bot_token}/createInvoiceLink',
-            json={
-                'title': f'EIFAVPN {PLANS[sub.plan]["name"]} — {sub.period_months} мес',
-                'description': f'VPN подписка {PLANS[sub.plan]["name"]} на {sub.period_months} мес.',
-                'payload': json.dumps({'sub_id': sub.id}),
-                'currency': 'XTR',
-                'prices': [{'label': 'VPN подписка', 'amount': stars_amount}],
-            },
-            timeout=10,
-        )
-        data = resp.json()
-        if data.get('ok'):
-            return {'payment_url': data['result'], 'payment_id': f'stars_{sub.id}'}
-        return {'error': data.get('description', 'Stars invoice failed')}
-    except Exception as e:
-        return {'error': str(e)}
+        user = request.user
+        from django.utils import timezone
+        active_sub = user.subscriptions.filter(
+            status='paid', expires_at__gt=timezone.now()
+        ).order_by('-expires_at').first()
 
+        if not active_sub:
+            return Response({'error': 'Нет активной подписки для смены тарифа'}, status=400)
 
-def create_crypto_invoice(sub, amount_rub, crypto_asset='USDT'):
-    """Create CryptoPay invoice in specific cryptocurrency.
+        if active_sub.plan == new_plan and active_sub.period_months == new_period:
+            return Response({'error': 'Вы уже на этом тарифе'}, status=400)
 
-    If crypto_asset specified: creates invoice in that crypto (converted from RUB + 3% markup).
-    Otherwise: creates fiat RUB invoice with multi-asset selection.
-    """
-    token = settings.CRYPTOPAY_TOKEN
-
-    # Convert RUB to specific crypto
-    if crypto_asset and crypto_asset in ('USDT', 'TON'):
-        crypto_amount = rub_to_crypto(amount_rub, crypto_asset)
-        if crypto_amount <= 0:
-            return {'error': 'Не удалось получить курс валюты'}
-        invoice_json = {
-            'currency_type': 'crypto',
-            'asset': crypto_asset,
-            'amount': str(crypto_amount),
-            'description': f'EIFAVPN {PLANS[sub.plan]["name"]} — {sub.period_months} мес',
-            'payload': json.dumps({'sub_id': sub.id}),
-            'expires_in': 3600,
-            'paid_btn_name': 'callback',
-            'paid_btn_url': f'{settings.APP_URL}/cabinet/overview',
-        }
-    else:
-        # Fallback: fiat RUB with multi-asset
-        invoice_json = {
-            'currency_type': 'fiat',
-            'fiat': 'RUB',
-            'amount': str(amount_rub),
-            'accepted_assets': 'USDT,TON,BTC',
-            'description': f'EIFAVPN {PLANS[sub.plan]["name"]} — {sub.period_months} мес',
-            'payload': json.dumps({'sub_id': sub.id}),
-            'expires_in': 3600,
-            'paid_btn_name': 'callback',
-            'paid_btn_url': f'{settings.APP_URL}/cabinet/overview',
-        }
-
-    try:
-        resp = requests.post(
-            'https://pay.crypt.bot/api/createInvoice',
-            headers={
-                'Crypto-Pay-API-Token': token,
-                'User-Agent': 'EIFAVPN/1.0',
-            },
-            json=invoice_json,
-            timeout=10,
-        )
-        data = resp.json()
-        if data.get('ok'):
-            invoice = data['result']
-            return {
-                'payment_url': invoice.get('bot_invoice_url') or invoice.get('mini_app_invoice_url'),
-                'payment_id': str(invoice['invoice_id']),
-            }
-        return {'error': data.get('error', {}).get('name', 'CryptoPay failed')}
-    except Exception as e:
-        return {'error': str(e)}
+        result = get_upgrade_price(active_sub, new_plan, new_period)
+        result['current_plan'] = active_sub.plan
+        result['current_period'] = active_sub.period_months
+        result['new_plan'] = new_plan
+        result['new_period'] = new_period
+        return Response(result)
 
 
-def create_wata_invoice(sub, amount_rub):
-    """Create Wata H2H payment link.
+class UpgradeView(APIView):
+    """POST /api/subscriptions/upgrade/ — initiate plan upgrade/downgrade."""
+    permission_classes = [IsAuthenticated]
 
-    API: POST https://api.wata.pro/api/h2h/links/
-    Amount in RUBLES (not kopecks!), camelCase field names.
-    """
-    token = settings.WATA_TOKEN
+    def post(self, request):
+        new_plan = request.data.get('plan')
+        new_period = request.data.get('period')
+        method = request.data.get('payment_method', 'stars')
+        crypto_asset = request.data.get('crypto_asset', 'USDT')
 
-    try:
-        resp = requests.post(
-            'https://api.wata.pro/api/h2h/links/',
-            headers={
-                'Authorization': f'Bearer {token}',
-                'Content-Type': 'application/json',
-                'User-Agent': 'EIFAVPN/1.0',
-            },
-            json={
-                'amount': round(float(amount_rub), 2),
-                'currency': 'RUB',
-                'orderId': f'eifavpn_{sub.id}',
-                'description': f'EIFAVPN {PLANS[sub.plan]["name"]} — {sub.period_months} мес',
-                'successRedirectUrl': f'{settings.APP_URL}/cabinet/overview',
-                'failRedirectUrl': f'{settings.APP_URL}/cabinet/purchase?failed=1',
-            },
-            timeout=15,
-        )
-        data = resp.json()
-        if data.get('id'):
-            return {
-                'payment_url': data.get('url'),
-                'payment_id': data['id'],
-            }
-        return {'error': data.get('message', data.get('title', 'Wata payment failed'))}
-    except Exception as e:
-        return {'error': str(e)}
+        if not new_plan or new_plan not in PLANS:
+            return Response({'error': 'Invalid plan'}, status=400)
+        if new_period not in (1, 3, 6, 12):
+            return Response({'error': 'Invalid period'}, status=400)
+
+        user = request.user
+        from datetime import datetime, timedelta, timezone
+        now_dt = datetime.now(timezone.utc)
+
+        active_sub = user.subscriptions.filter(
+            status='paid', expires_at__gt=now_dt
+        ).order_by('-expires_at').first()
+
+        if not active_sub:
+            return Response({'error': 'Нет активной подписки'}, status=400)
+
+        calc = get_upgrade_price(active_sub, new_plan, new_period)
+
+        if calc['is_upgrade'] and calc['charge_amount'] > 0:
+            # Upgrade: create pending sub, generate invoice for difference
+            sub = Subscription.objects.create(
+                user=user,
+                plan=new_plan,
+                period_months=new_period,
+                price_paid=calc['charge_amount'],
+                payment_method=method,
+                status='pending',
+                expires_at=now_dt + timedelta(days=new_period * 30),
+                upgrade_from=active_sub,
+            )
+
+            if method == 'stars':
+                invoice = create_stars_invoice(sub, calc['charge_amount'])
+            elif method == 'crypto':
+                invoice = create_crypto_invoice(sub, calc['charge_amount'], crypto_asset)
+            elif method == 'wata':
+                invoice = create_wata_invoice(sub, calc['charge_amount'])
+            else:
+                sub.delete()
+                return Response({'error': 'Invalid payment method'}, status=400)
+
+            if invoice.get('error'):
+                sub.delete()
+                return Response({'error': invoice['error']}, status=500)
+
+            sub.payment_id = invoice.get('payment_id', '')
+            sub.save(update_fields=['payment_id'])
+
+            return Response({
+                'type': 'upgrade',
+                'charge_amount': calc['charge_amount'],
+                'payment_url': invoice.get('payment_url'),
+                'payment_id': invoice.get('payment_id'),
+                'subscription_id': sub.id,
+            })
+        else:
+            # Downgrade or free switch: apply immediately
+            try:
+                remnawave.update_subscription(user.remnawave_uuid, new_plan, new_period)
+            except Exception as e:
+                return Response({'error': f'Remnawave error: {str(e)}'}, status=500)
+
+            # Create paid sub record
+            sub = Subscription.objects.create(
+                user=user,
+                plan=new_plan,
+                period_months=new_period,
+                price_paid=0,
+                payment_method='downgrade',
+                status='paid',
+                expires_at=now_dt + timedelta(days=new_period * 30),
+                upgrade_from=active_sub,
+            )
+
+            # Apply credit as bonus days
+            if calc['credit_days'] > 0 and user.remnawave_uuid:
+                try:
+                    remnawave.extend_subscription(user.remnawave_uuid, calc['credit_days'])
+                except Exception:
+                    pass
+
+            return Response({
+                'type': 'downgrade',
+                'credit_days': calc['credit_days'],
+                'new_plan': new_plan,
+                'applied': True,
+            })
+
+
+class PaymentHistoryView(APIView):
+    """GET /api/subscriptions/history/ — user's payment history."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        subs = request.user.subscriptions.filter(
+            status__in=['paid', 'cancelled', 'expired']
+        ).order_by('-created_at')
+
+        result = []
+        for s in subs[:50]:
+            result.append({
+                'id': s.id,
+                'plan': s.plan,
+                'plan_name': PLANS.get(s.plan, {}).get('name', s.plan),
+                'period_months': s.period_months,
+                'price_paid': str(s.price_paid),
+                'payment_method': s.payment_method,
+                'status': s.status,
+                'created_at': s.created_at.isoformat(),
+                'expires_at': s.expires_at.isoformat(),
+            })
+        return Response(result)
+
+
+# === Payment method helpers (extracted to subscriptions/invoices.py) ===
+
+from .invoices import create_stars_invoice, create_crypto_invoice, create_wata_invoice
 
 
 # === Webhooks ===

@@ -49,6 +49,8 @@ class UserSerializer(serializers.ModelSerializer):
             'used_trial', 'used_trial_upgrade',
             'has_subscription', 'current_plan',
             'date_joined', 'is_staff',
+            'auto_renew', 'preferred_payment_method', 'preferred_crypto_asset',
+            'notification_prefs',
         ]
         read_only_fields = [
             'id', 'referral_code', 'remnawave_uuid', 'remnawave_short_uuid',
@@ -70,4 +72,8 @@ class UserSerializer(serializers.ModelSerializer):
 class UpdateProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['first_name', 'avatar_url']
+        fields = [
+            'first_name', 'avatar_url',
+            'auto_renew', 'preferred_payment_method', 'preferred_crypto_asset',
+            'notification_prefs',
+        ]

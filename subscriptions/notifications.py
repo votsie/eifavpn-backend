@@ -34,6 +34,18 @@ def _e(emoji_id, fallback='✨'):
     return fallback
 
 
+def should_notify(user, notification_type):
+    """Check if user wants to receive this type of notification.
+
+    Types: purchase, expiring, expired, promo, newsletter, renewal
+    Default: True (backward compatible — users who haven't set prefs get everything).
+    """
+    if not user.telegram_id:
+        return False
+    prefs = getattr(user, 'notification_prefs', None) or {}
+    return prefs.get(notification_type, True)
+
+
 def _token():
     global TOKEN
     if not TOKEN:
@@ -121,7 +133,7 @@ def send_welcome(chat_id, first_name=''):
 # ──────────────────────────────────────────────
 
 def notify_purchase_success(user, subscription):
-    if not user.telegram_id:
+    if not should_notify(user, 'purchase'):
         return
     plan_name = subscription.plan.capitalize()
     period = subscription.period_months
@@ -142,7 +154,7 @@ def notify_purchase_success(user, subscription):
 # ──────────────────────────────────────────────
 
 def notify_expiring(user, days_left):
-    if not user.telegram_id:
+    if not should_notify(user, 'expiring'):
         return
     if days_left == 3:
         text = (
@@ -167,7 +179,7 @@ def notify_expiring(user, days_left):
 # ──────────────────────────────────────────────
 
 def notify_expired(user):
-    if not user.telegram_id:
+    if not should_notify(user, 'expired'):
         return
     text = (
         f'{_e(E["sword"], "⚔")} <b>Подписка истекла</b>\n\n'
@@ -184,7 +196,7 @@ def notify_expired(user):
 
 def notify_expired_with_promo(user):
     """Send personal 10% promo code 1 day after expiry. Only once per user."""
-    if not user.telegram_id:
+    if not should_notify(user, 'promo'):
         return
 
     # Check if we already sent a winback promo to this user
@@ -226,6 +238,40 @@ def notify_expired_with_promo(user):
         f'{_e(E["handshake"], "🤝")} Используйте при покупке!'
     )
     _send_message(user.telegram_id, text, reply_markup=_open_button())
+
+
+# ──────────────────────────────────────────────
+# 6. Auto-renewal notification
+# ──────────────────────────────────────────────
+
+def notify_renewal_available(user, days_left, payment_url):
+    """Send auto-renewal invoice link via Telegram."""
+    if not should_notify(user, 'renewal'):
+        return
+
+    if days_left == 3:
+        text = (
+            f'{_e(E["crown"], "👑")} <b>Подписка заканчивается через 3 дня</b>\n\n'
+            f'{_e(E["heart"], "❤️")} У вас включено авто-продление.\n'
+            f'Продлите подписку одним нажатием:'
+        )
+    elif days_left == 1:
+        text = (
+            f'{_e(E["sword"], "⚔")} <b>Подписка заканчивается завтра!</b>\n\n'
+            f'{_e(E["lock"], "🔐")} Продлите сейчас, чтобы VPN не отключился:'
+        )
+    else:
+        text = (
+            f'{_e(E["sword"], "⚔")} <b>Подписка заканчивается сегодня!</b>\n\n'
+            f'{_e(E["heart"], "❤️")} Последний шанс продлить без перерыва:'
+        )
+
+    _send_message(user.telegram_id, text, reply_markup={
+        'inline_keyboard': [[{
+            'text': '🔄 Продлить подписку',
+            'url': payment_url,
+        }]]
+    })
 
 
 # ──────────────────────────────────────────────

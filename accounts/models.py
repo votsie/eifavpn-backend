@@ -54,6 +54,14 @@ class User(AbstractUser):
     # Email verification
     email_verified = models.BooleanField(default=False)
 
+    # Auto-renewal
+    auto_renew = models.BooleanField(default=False)
+    preferred_payment_method = models.CharField(max_length=32, blank=True, default='')
+    preferred_crypto_asset = models.CharField(max_length=16, blank=True, default='USDT')
+
+    # Notification preferences
+    notification_prefs = models.JSONField(default=dict, blank=True)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
@@ -80,6 +88,7 @@ class Subscription(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     remnawave_uuid = models.UUIDField(null=True, blank=True)
+    upgrade_from = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='upgrades')
 
     class Meta:
         ordering = ['-created_at']
