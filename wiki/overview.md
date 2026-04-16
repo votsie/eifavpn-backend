@@ -1,6 +1,10 @@
 ---
 title: EIFAVPN Backend — Project Overview
+type: overview
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [overview, architecture]
 ---
 
 # EIFAVPN Backend
