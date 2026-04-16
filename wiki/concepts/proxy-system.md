@@ -1,7 +1,10 @@
 ---
 title: Proxy System
 type: concept
+status: developing
+created: 2026-04-16
 updated: 2026-04-16
+tags: [concept, proxy, security]
 ---
 
 # Proxy System
