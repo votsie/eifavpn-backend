@@ -43,5 +43,14 @@ purpose: Quick-load context for future sessions
 - Pro: 99/89/79/65
 - Max: 149/129/119/99
 
+## Frontend (Cross-Project)
+- **Repo**: eifavpn-frontend (React 19 + Vite SPA)
+- **Wiki**: `C:/Users/aafek/OneDrive/Документы/GitHub/eifavpn-frontend/wiki/`
+- **Stack**: React 19, Router 7.14, Zustand 5, Tailwind 4, HeroUI 3
+- **Layouts**: Landing (public), Cabinet (auth), Admin (staff), TG App (auto-login)
+- **API modules**: client.js (auto-refresh), auth.js (15+), subscriptions.js, referrals.js, admin.js (30+)
+- **Deploy**: GitHub Actions → SCP → same server 5.101.81.90
+
 ## Latest Ingest
 - 2026-04-16: Full project scan — all modules documented
+- 2026-04-16: Frontend cross-references added

@@ -51,6 +51,10 @@ updated: 2026-04-16
 - [[CI CD Pipeline]] — GitHub Actions деплой
 - [[API Endpoints Reference]] — Полный список 30+ эндпоинтов
 
+## Cross-Project
+
+- [[EIFAVPN Frontend]] — React 19 SPA (eifavpn-frontend/wiki/)
+
 ## Meta
 
 - [[hot]] — Hot cache для быстрого старта сессии

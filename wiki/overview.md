@@ -63,8 +63,19 @@ updated: 2026-04-16
 4. **[[Promo Code System]]** — percent/days/gift типы промокодов
 5. **[[Remnawave Integration]]** — CRUD подписок через внешний API
 
+## Фронтенд
+
+Клиентская часть — React 19 SPA в отдельном репозитории. Полная документация: [[EIFAVPN Frontend]].
+
+Ключевые связи:
+- Фронтенд вызывает 50+ API-эндпоинтов бэкенда
+- 4 метода аутентификации (email code, Google OAuth, Telegram Widget, TG Mini App)
+- 3 платёжных шлюза (Stars, CryptoPay, Wata) — фронтенд open URL + polling, бэкенд webhooks
+- Remnawave данные через proxy endpoint
+
 ## См. также
 
+- [[EIFAVPN Frontend]] — React SPA документация
 - [[Project Settings]] — Конфигурация Django
 - [[CI CD Pipeline]] — GitHub Actions деплой
 - [[API Endpoints Reference]] — Полный список эндпоинтов

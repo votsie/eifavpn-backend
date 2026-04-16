@@ -5,6 +5,13 @@ updated: 2026-04-16
 
 # Wiki Log
 
+## 2026-04-16 ingest | Frontend Cross-References
+- Source: Multi-agent scan of eifavpn-frontend project
+- Summary: [[EIFAVPN Frontend]]
+- Pages created: [[EIFAVPN Frontend]]
+- Pages updated: [[overview]], [[hot]], [[index]]
+- Key insight: Добавлены кросс-ссылки на фронтенд wiki. Оба проекта теперь связаны через entity pages.
+
 ## 2026-04-16 ingest | Full Project Scan
 - Source: All project files (accounts/, api/, subscriptions/, eifavpn/, .github/)
 - Summary: Complete codebase documentation
