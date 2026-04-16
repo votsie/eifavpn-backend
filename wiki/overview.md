@@ -12,7 +12,7 @@ updated: 2026-04-16
 | Компонент | Технология |
 |-----------|-----------|
 | Framework | Django 6.x + Django REST Framework 3.17 |
-| Auth | JWT (simplejwt), Google OAuth 2.0, Telegram OAuth 2.0, Telegram Mini App initData |
+| Auth | [[JWT Authentication]] (simplejwt), Google OAuth 2.0, Telegram OAuth 2.0, Telegram Mini App initData |
 | Database | PostgreSQL (psycopg2-binary) |
 | HTTP client | httpx, requests |
 | WSGI server | Gunicorn |
