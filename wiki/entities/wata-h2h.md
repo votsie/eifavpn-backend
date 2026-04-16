@@ -61,8 +61,11 @@ tags: [entity, external-service, payment]
 2. Parse orderId: `eifavpn_{sub_id}`
 3. `process_payment_success(sub)`
 
-> [!gap] Security Note
-> В текущем коде нет проверки подписи webhook-запроса от Wata.
+### Верификация (реализовано 2026-04-16)
+
+Server-to-server проверка: после получения webhook, бэкенд вызывает Wata API (`GET /h2h/links/{id}`) для подтверждения `transactionStatus=Paid` и совпадения суммы. Fail-closed: при недоступности API платёж отклоняется.
+
+См. [[Security Review]] — P0 fix.
 
 ## Конвертация
 
@@ -72,3 +75,4 @@ tags: [entity, external-service, payment]
 
 - [[Payment Processing]] — общий flow
 - [[Subscription Lifecycle]] — webhook обработка
+- [[Security Review]] — аудит безопасности
