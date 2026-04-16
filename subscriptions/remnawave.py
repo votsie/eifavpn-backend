@@ -115,6 +115,31 @@ def get_user_data(remnawave_uuid):
     return None
 
 
+def get_user_devices(remnawave_uuid):
+    """Get user's HWID devices from Remnawave."""
+    resp = requests.get(
+        f'{settings.REMNAWAVE_API_URL}/hwid-user-devices/{remnawave_uuid}',
+        headers=_headers(),
+        timeout=10,
+    )
+    if resp.ok:
+        data = resp.json()
+        items = data.get('response', data)
+        return items if isinstance(items, list) else []
+    return []
+
+
+def delete_user_device(remnawave_uuid, hwid):
+    """Delete a specific HWID device for a user."""
+    resp = requests.delete(
+        f'{settings.REMNAWAVE_API_URL}/hwid-user-devices',
+        json={'userUuid': str(remnawave_uuid), 'hwid': hwid},
+        headers=_headers(),
+        timeout=10,
+    )
+    return resp.ok
+
+
 def _headers():
     return {
         'Authorization': f'Bearer {settings.REMNAWAVE_BEARER_TOKEN}',
