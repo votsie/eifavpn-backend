@@ -18,9 +18,10 @@ tags: [meta, hot-cache]
 - **Domain**: eifavpn.ru (prod), dev.eifavpn.ru (dev)
 
 ## Apps
-- `accounts` — User model (email-based, multi-auth), referrals, email verification
+- `accounts` — User (auto_renew, notification_prefs), Subscription (upgrade_from, error status), Referral, SupportTicket, PromoCode
 - `api` — Google/Telegram OAuth callbacks, Remnawave proxy
-- `subscriptions` — Plans (standard/pro/max), payments (Stars/Crypto/Wata), webhooks, notifications
+- `subscriptions` — Plans (standard/pro/max), payments, webhooks, notifications, renewal, invoices, exchange_rates, qr_utils
+- `admin_api` — 30+ admin endpoints: stats (nested), users+filters, tickets, analytics (cohorts/funnel/forecast), maintenance toggle
 
 ## Key Models
 - `User` (accounts) — email as USERNAME_FIELD, telegram_id, google_id, remnawave_uuid, referral_code
