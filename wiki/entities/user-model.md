@@ -56,6 +56,21 @@ objects = UserManager()  # кастомный менеджер
 | used_trial_upgrade | BooleanField | False | Использовано предложение 1₽ |
 | email_verified | BooleanField | False | Email подтверждён |
 
+### Auto-Renewal (added 2026-04-17)
+| Поле | Тип | Default | Описание |
+|------|-----|---------|----------|
+| auto_renew | BooleanField | False | Включено авто-продление (см. [[Auto-Renewal]]) |
+| preferred_payment_method | CharField(32) | '' | stars / crypto / wata |
+| preferred_crypto_asset | CharField(16) | 'USDT' | USDT / TON / BTC |
+| notification_prefs | JSONField | {} | Per-category флаги уведомлений (purchase, expiring, expired, promo, renewal) |
+
+### Admin flags (from AbstractUser)
+| Поле | Описание |
+|------|----------|
+| is_staff | Доступ к админ-панели (см. [[Admin Panel]]) |
+| is_active | Активный аккаунт |
+| is_superuser | Superuser флаг для Django admin |
+
 ## UserManager
 
 ```python
