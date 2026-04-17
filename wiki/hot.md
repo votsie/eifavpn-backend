@@ -69,6 +69,16 @@ tags: [meta, hot-cache]
 - See: [[Security Review]]
 
 ## Latest Ingest
+- 2026-04-17: HAR analysis + wiki sync — 6 new pages (Admin API App, SupportTicket Model, Auto-Renewal, Plan Upgrade, Admin Panel, Support Tickets), 4 updated. MaintenanceView created, forecast null handling, active_referrers vs total_referred
+- 2026-04-17: Admin panel review — StatsView nested structure, N+1 in tickets fixed, UserListView filters, type coercion
 - 2026-04-16: Security audit + wiki lint — 13 code fixes, 33 wiki pages updated
 - 2026-04-16: Full project scan — all modules documented
 - 2026-04-16: Frontend cross-references added
+
+## Recent architectural changes
+- **2026-04-17**: admin_api app (4-е Django-приложение) + 30+ endpoints + Support.jsx
+- **2026-04-17**: Auto-renewal — renewal.py + management command
+- **2026-04-17**: Plan upgrade — pro-rata + downgrade disabled
+- **2026-04-17**: User.notification_prefs + should_notify() helper
+- **2026-04-17**: Stars webhook fail-closed (TELEGRAM_WEBHOOK_SECRET required)
+- **2026-04-17**: Frontend OAuth: токены через `#fragment` (не `?query`)
