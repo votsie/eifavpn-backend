@@ -146,7 +146,11 @@ class StatsView(APIView):
         paid_count = Subscription.objects.filter(status='paid').exclude(payment_method='trial').count()
         avg_check = round(float(total_revenue) / max(paid_count, 1), 0) if total_revenue else 0
 
+        # Referrals stats
+        # - active_referrers: unique referrers who got paid bonus (Referral table)
+        # - total_referred: users who registered via ?ref=CODE (regardless of payment)
         active_referrers = Referral.objects.values('referrer_id').distinct().count()
+        total_referred = User.objects.filter(referred_by__isnull=False).count()
 
         # Plan distribution
         by_plan = {}
@@ -172,6 +176,7 @@ class StatsView(APIView):
             },
             'referrals': {
                 'active_referrers': active_referrers,
+                'total_referred': total_referred,
             },
             # Legacy flat keys for backward compat
             'total_users': total_users,
@@ -790,15 +795,15 @@ class ForecastView(APIView):
 
         def growth_rate(current, previous):
             if previous == 0:
-                return 0
+                return None  # N/A — can't compute growth from zero baseline
             return round((float(current) - float(previous)) / float(previous) * 100, 1)
 
         reg_growth = growth_rate(regs_30, regs_60)
         rev_growth = growth_rate(rev_30, rev_60)
 
-        # Simple next-30-day forecast
-        forecast_regs = max(round(regs_30 * (1 + reg_growth / 100)), 0)
-        forecast_rev = max(round(float(rev_30) * (1 + rev_growth / 100)), 0)
+        # Simple next-30-day forecast (if no baseline, project flat)
+        forecast_regs = max(round(regs_30 * (1 + (reg_growth or 0) / 100)), 0)
+        forecast_rev = max(round(float(rev_30) * (1 + (rev_growth or 0) / 100)), 0)
 
         return Response({
             'period': '30d',
@@ -945,6 +950,21 @@ class SystemHealthView(APIView):
 
 # Simple key-value store in memory (in production, use a model or cache)
 _app_settings = {}
+
+
+class MaintenanceView(APIView):
+    """GET /api/admin/maintenance/ — current maintenance state.
+    POST /api/admin/maintenance/ — toggle maintenance mode."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        return Response({'maintenance': _app_settings.get('maintenance_mode', False)})
+
+    def post(self, request):
+        enabled = bool(request.data.get('enabled', False))
+        _app_settings['maintenance_mode'] = enabled
+        _log_admin_action(request.user, 'toggle_maintenance', {'enabled': enabled})
+        return Response({'maintenance': enabled})
 
 
 class SettingsView(APIView):

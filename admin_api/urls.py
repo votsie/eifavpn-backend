@@ -39,6 +39,7 @@ urlpatterns = [
 
     # Settings
     path('settings/', views.SettingsView.as_view()),
+    path('maintenance/', views.MaintenanceView.as_view()),
 
     # Search
     path('search/', views.GlobalSearchView.as_view()),
