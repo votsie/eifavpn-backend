@@ -3,14 +3,14 @@ title: Wiki Index
 type: meta
 status: developing
 created: 2026-04-16
-updated: 2026-04-16
+updated: 2026-04-17
 tags: [meta, index]
 ---
 
 # EIFAVPN Backend Wiki
 
 > [!key-insight] Project Identity
-> Django 6.x REST API для VPN-сервиса с Telegram Mini App фронтендом. 3 Django-приложения, 5 методов аутентификации, 3 платёжных шлюза, внешняя VPN-панель Remnawave.
+> Django 6.x REST API для VPN-сервиса с Telegram Mini App фронтендом. 4 Django-приложения (accounts, api, subscriptions, admin_api), 5 методов аутентификации, 3 платёжных шлюза, внешняя VPN-панель Remnawave, система тикетов поддержки.
 
 ## Overview
 
@@ -18,17 +18,19 @@ tags: [meta, index]
 
 ## Sources (Django Apps)
 
-- [[Accounts App]] — Пользователи, аутентификация, реферальная система
+- [[Accounts App]] — Пользователи, аутентификация, реферальная система, тикеты
 - [[API App]] — Google/Telegram OAuth, прокси к Remnawave
-- [[Subscriptions App]] — Тарифы, покупки, платежи, webhooks, уведомления
+- [[Subscriptions App]] — Тарифы, покупки, платежи, webhooks, уведомления, авто-продление
+- [[Admin API App]] — Админ-панель (30+ endpoints: stats, users, payments, tickets)
 
 ## Entities (Models)
 
-- [[User Model]] — Кастомный User (email-based, multi-auth, referrals)
-- [[Subscription Model]] — Подписки (plan, status, payment, expires_at)
-- [[Referral Model]] — Реферальные связи и бонусы
+- [[User Model]] — Кастомный User (email-based, multi-auth, referrals, auto_renew, notification_prefs)
+- [[Subscription Model]] — Подписки (plan, status, payment, expires_at, upgrade_from)
+- [[Referral Model]] — Реферальные связи и бонусы (создаются только при первой оплате)
 - [[EmailVerification Model]] — 6-значные коды верификации email
 - [[PromoCode Model]] — Промокоды (percent/days/gift)
+- [[SupportTicket Model]] — Тикеты поддержки + TicketMessage (диалог)
 
 ## Entities (External Services)
 
