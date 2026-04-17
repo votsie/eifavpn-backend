@@ -70,10 +70,13 @@ Subscription.objects.filter(
 
 - `user` → [[User Model]]
 - `promo_code` → [[PromoCode Model]]
-- ← [[Referral Model]] (subscription FK)
+- `upgrade_from` → self (smallest self-FK, SET_NULL)
+- ← [[Referral Model]] (subscription FK, заполняется при первой оплате)
 
 ## См. также
 
 - [[Subscription Lifecycle]] — полный flow
 - [[Payment Processing]] — создание invoices и webhooks
 - [[Subscriptions App]] — views
+- [[Plan Upgrade]] — upgrade_from mechanism
+- [[Auto-Renewal]] — проактивная генерация pending подписок
