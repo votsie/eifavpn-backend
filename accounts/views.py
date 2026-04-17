@@ -550,15 +550,16 @@ class LinkTelegramView(APIView):
 
 
 class ApplyPendingPromoView(APIView):
-    """POST /api/auth/apply-pending-promo/ — store promo code on user for later use."""
+    """POST /api/auth/apply-pending-promo/ — store promo code on user for later use on first purchase."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        code = (request.data.get('code') or '').strip()
+        code = (request.data.get('code') or '').strip().upper()[:32]
         if not code:
             return Response({'error': 'Code required'}, status=status.HTTP_400_BAD_REQUEST)
-        # Store on user (pending_promo_code field may not exist yet — store in session or just return ok)
-        # For now, save to localStorage hint via response
+        user = request.user
+        user.pending_promo_code = code
+        user.save(update_fields=['pending_promo_code'])
         return Response({'applied': True, 'code': code})
 
 

@@ -11,10 +11,14 @@ PUBLIC_PREFIXES = [
     '/system/stats',
 ]
 
-# Authenticated endpoints (JWT required)
-AUTH_PREFIXES = [
+# Authenticated user endpoints (any logged-in user can access their own data)
+USER_PREFIXES = [
     '/users/',
     '/hwid-user-devices/',
+]
+
+# Admin-only endpoints (is_staff=True required; these reveal infrastructure)
+ADMIN_PREFIXES = [
     '/nodes',
     '/hosts',
     '/internal-squads',
@@ -39,13 +43,14 @@ def get_user_from_jwt(request):
 def proxy_view(request, path=''):
     endpoint = f'/{path}'
 
-    # Check if public endpoint
+    # Classify endpoint
     is_public = any(endpoint.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+    is_user_endpoint = any(endpoint.startswith(prefix) for prefix in USER_PREFIXES)
+    is_admin_endpoint = any(endpoint.startswith(prefix) for prefix in ADMIN_PREFIXES)
+    is_patch_users = request.method == 'PATCH' and endpoint == '/users'
 
-    # Check if allowed endpoint
-    is_allowed = is_public or any(endpoint.startswith(prefix) for prefix in AUTH_PREFIXES)
-
-    if not is_allowed and not (request.method == 'PATCH' and endpoint == '/users'):
+    is_allowed = is_public or is_user_endpoint or is_admin_endpoint or is_patch_users
+    if not is_allowed:
         return JsonResponse({'message': 'Endpoint not allowed'}, status=403)
 
     # Require JWT auth for non-public endpoints
@@ -54,6 +59,10 @@ def proxy_view(request, path=''):
         user = get_user_from_jwt(request)
         if not user:
             return JsonResponse({'message': 'Authentication required'}, status=401)
+
+        # Admin-only endpoints: require is_staff (reveal infrastructure)
+        if is_admin_endpoint and not user.is_staff:
+            return JsonResponse({'message': 'Admin access required'}, status=403)
 
         # Ownership check: /users/ endpoints should only access the user's own data
         if endpoint.startswith('/users/') and user.remnawave_uuid:

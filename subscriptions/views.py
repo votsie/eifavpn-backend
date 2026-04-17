@@ -1,6 +1,7 @@
 import json
 import hashlib
 import hmac
+import logging
 import requests
 from django.conf import settings
 from django.http import JsonResponse
@@ -10,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from django.db.models import F
-from accounts.models import Subscription, Referral
+from accounts.models import Subscription, Referral, User
 try:
     from accounts.models import PromoCode, PromoCodeUsage
 except ImportError:
@@ -264,6 +265,8 @@ class PurchaseView(APIView):
         promo_discount = 0
 
         if promo_code_str:
+            if validate_promo_for_user is None:
+                return Response({'error': 'Промокоды временно недоступны'}, status=501)
             promo, error = validate_promo_for_user(user, promo_code_str, plan, period)
             if error:
                 return Response({'error': f'Промокод: {error}'}, status=400)
@@ -789,21 +792,35 @@ def process_payment_success(sub):
             user.save(update_fields=['pending_promo_code'])
 
     # Referral bonus: +7 days for the person who invited this user
-    if user.referred_by and not Referral.objects.filter(referred=user, bonus_applied=True).exists():
+    # Uses get_or_create with unique check to prevent double-credit from duplicate webhooks.
+    # F() update avoids lost-update race on referrer.referral_bonus_days.
+    if user.referred_by:
+        from django.db import transaction
+        from django.db.models import F
         referrer = user.referred_by
-        if referrer.remnawave_uuid:
-            try:
-                remnawave.extend_subscription(referrer.remnawave_uuid, REFERRAL_BONUS_DAYS)
-                referrer.referral_bonus_days += REFERRAL_BONUS_DAYS
-                referrer.save()
-            except Exception:
-                pass
-        Referral.objects.create(
-            referrer=referrer,
-            referred=user,
-            subscription=sub,
-            bonus_applied=True,
-        )
+        with transaction.atomic():
+            # get_or_create is atomic with DB-level uniqueness (referred FK + bonus_applied)
+            # If a Referral with bonus_applied=True already exists for this user, skip.
+            referral, created = Referral.objects.get_or_create(
+                referrer=referrer,
+                referred=user,
+                defaults={'subscription': sub, 'bonus_applied': False},
+            )
+            if not referral.bonus_applied:
+                # Atomic update so two concurrent webhooks don't double-credit
+                referral.bonus_applied = True
+                referral.subscription = sub
+                referral.save(update_fields=['bonus_applied', 'subscription'])
+                # F() prevents lost-update
+                User.objects.filter(pk=referrer.pk).update(
+                    referral_bonus_days=F('referral_bonus_days') + REFERRAL_BONUS_DAYS
+                )
+                if referrer.remnawave_uuid:
+                    try:
+                        remnawave.extend_subscription(referrer.remnawave_uuid, REFERRAL_BONUS_DAYS)
+                    except Exception as e:
+                        logger = logging.getLogger(__name__)
+                        logger.error(f'Remnawave extend failed for referrer {referrer.pk}: {e}')
 
     # Telegram notification about successful purchase
     try:
