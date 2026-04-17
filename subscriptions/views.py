@@ -236,11 +236,30 @@ class PurchaseView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        # Defensive wrapper — unhandled exceptions previously rendered as Django HTML 500,
+        # which leaks no detail to the client. We now catch-all, log the full traceback,
+        # and return structured JSON so the frontend and HAR captures carry the root cause.
+        try:
+            return self._post(request)
+        except Exception as exc:
+            import traceback
+            logger = logging.getLogger(__name__)
+            logger.exception('PurchaseView crashed: %s: %s', type(exc).__name__, exc)
+            return Response(
+                {
+                    'error': 'Не удалось создать платёж — внутренняя ошибка',
+                    'exc_class': type(exc).__name__,
+                    'exc_msg': str(exc)[:500],
+                },
+                status=500,
+            )
+
+    def _post(self, request):
         plan = request.data.get('plan')
         period = request.data.get('period')
         method = request.data.get('payment_method')
         crypto_asset = request.data.get('crypto_asset', 'USDT')  # USDT or TON
-        promo_code_str = request.data.get('promo_code', '').strip()
+        promo_code_str = (request.data.get('promo_code') or '').strip()
 
         if plan not in PLANS:
             return Response({'error': 'Invalid plan'}, status=400)
@@ -254,11 +273,13 @@ class PurchaseView(APIView):
             return Response({'error': 'Invalid payment method'}, status=400)
 
         user = request.user
-        has_referral = user.referred_by is not None
+        has_referral = getattr(user, 'referred_by', None) is not None
 
-        # Resolve promo code (explicit > pending)
-        if not promo_code_str and user.pending_promo_code:
-            promo_code_str = user.pending_promo_code
+        # Resolve promo code (explicit > pending). Defensive getattr — some deployments
+        # may pre-date the pending_promo_code migration.
+        pending = getattr(user, 'pending_promo_code', '') or ''
+        if not promo_code_str and pending:
+            promo_code_str = pending
 
         promo = None
         bonus_days = 0
@@ -289,8 +310,10 @@ class PurchaseView(APIView):
         from datetime import datetime, timedelta, timezone
         Subscription.objects.filter(user=user, status='pending').update(status='cancelled')
 
-        # Create pending subscription (expires_at is placeholder — recalculated on payment success)
-        sub = Subscription.objects.create(
+        # Create pending subscription (expires_at is placeholder — recalculated on payment success).
+        # Build kwargs defensively — if Subscription.promo_code FK wasn't migrated yet,
+        # omit it instead of crashing the whole purchase flow.
+        sub_kwargs = dict(
             user=user,
             plan=plan,
             period_months=period,
@@ -298,27 +321,43 @@ class PurchaseView(APIView):
             payment_method=method,
             status='pending',
             expires_at=datetime.now(timezone.utc) + timedelta(days=period * 30),
-            promo_code=promo,
         )
+        try:
+            Subscription._meta.get_field('promo_code')
+            sub_kwargs['promo_code'] = promo
+        except Exception:
+            pass
+
+        sub = Subscription.objects.create(**sub_kwargs)
 
         # Create invoice based on payment method
-        if method == 'stars':
-            invoice = create_stars_invoice(sub, total_price)
-        elif method == 'crypto':
-            invoice = create_crypto_invoice(sub, total_price, crypto_asset)
-        elif method == 'wata':
-            invoice = create_wata_invoice(sub, total_price)
-        else:
-            return Response({'error': 'Unknown method'}, status=400)
+        try:
+            if method == 'stars':
+                invoice = create_stars_invoice(sub, total_price)
+            elif method == 'crypto':
+                invoice = create_crypto_invoice(sub, total_price, crypto_asset)
+            elif method == 'wata':
+                invoice = create_wata_invoice(sub, total_price)
+            else:
+                sub.delete()
+                return Response({'error': 'Unknown method'}, status=400)
+        except Exception as exc:
+            logger = logging.getLogger(__name__)
+            logger.exception('Invoice creation failed (%s): %s', method, exc)
+            sub.delete()
+            return Response(
+                {'error': f'Платёжный шлюз недоступен: {type(exc).__name__}', 'exc_msg': str(exc)[:500]},
+                status=502,
+            )
 
         if invoice.get('error'):
             sub.delete()
-            return Response({'error': invoice['error']}, status=500)
+            return Response({'error': invoice['error']}, status=502)
 
         sub.payment_id = invoice.get('payment_id', '')
-        sub.save()
+        sub.save(update_fields=['payment_id'])
 
-        # Admin notification: new deal
+        # Admin notification: new deal (best-effort; never break the user flow on this)
         try:
             from .admin_notify import notify_payment_initiated
             notify_payment_initiated(user, sub, total_price, method, crypto_asset if method == 'crypto' else None)
