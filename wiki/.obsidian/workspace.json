@@ -11,10 +11,14 @@
             "id": "6419efb1f730de83",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Граф"
+              "type": "markdown",
+              "state": {
+                "file": "entities/telegram-stars.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "telegram-stars"
             }
           }
         ]
@@ -182,6 +186,7 @@
   },
   "active": "6419efb1f730de83",
   "lastOpenFiles": [
+    "JWT Authentication.md",
     "log.md",
     "concepts/promo-code-system.md",
     "entities/wata-h2h.md",
@@ -207,7 +212,6 @@
     "concepts/payment-processing.md",
     "meta/dashboard.md",
     "concepts/security-review.md",
-    "meta/lint-report-2026-04-16.md",
     "meta"
   ]
 }
