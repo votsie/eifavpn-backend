@@ -24,11 +24,12 @@ tags: [meta, hot-cache]
 - `admin_api` — 30+ admin endpoints: stats (nested), users+filters, tickets, analytics (cohorts/funnel/forecast), maintenance toggle
 
 ## Key Models
-- `User` (accounts) — email as USERNAME_FIELD, telegram_id, google_id, remnawave_uuid, referral_code
-- `Subscription` (accounts) — plan, period_months, status (pending/paid/cancelled/expired), payment_method
-- `Referral` (accounts) — referrer→referred tracking, bonus_applied flag
+- `User` (accounts) — email as USERNAME_FIELD, telegram_id, google_id, remnawave_uuid, referral_code, auto_renew, notification_prefs JSONField
+- `Subscription` (accounts) — plan, period_months, status (pending/paid/cancelled/expired/**error**), payment_method, **upgrade_from** FK
+- `Referral` (accounts) — referrer→referred tracking, bonus_applied. Создаётся **только при первой оплате** (не при регистрации через ref)
 - `EmailVerification` (accounts) — 6-digit codes, 10min expiry
 - `PromoCode` (accounts) — percent/days/gift types, per-user limits
+- `SupportTicket` + `TicketMessage` (accounts) — тикеты поддержки с TG-интеграцией
 
 ## External Services
 - **Remnawave**: POST/PATCH /users for VPN subscription CRUD
