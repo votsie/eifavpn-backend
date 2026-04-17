@@ -102,9 +102,24 @@ create_superuser(email, password, **extra_fields)
 - `referred_by` → self (реферальное дерево)
 - `subscriptions` ← [[Subscription Model]] (related_name='subscriptions')
 - `referral_rewards` ← [[Referral Model]] (related_name='referral_rewards')
+- `tickets` ← [[SupportTicket Model]] (related_name='tickets') — тикеты пользователя
+- `assigned_tickets` ← [[SupportTicket Model]] (related_name='assigned_tickets') — тикеты, назначенные на этого админа
+
+## Миграции
+
+| # | Файл | Что добавлено |
+|---|------|---------------|
+| 0001 | initial | Базовые поля User |
+| 0002 | user_used_trial | Trial флаги |
+| 0003 | emailverification_user_email_verified | Email verification |
+| 0004 | support_ticket_system | SupportTicket + TicketMessage |
+| 0005 | user_renewal_notif_prefs | auto_renew, preferred_payment_method, preferred_crypto_asset, notification_prefs + Subscription.upgrade_from |
 
 ## См. также
 
 - [[Accounts App]] — views и serializers
 - [[Authentication Flows]] — как User создаётся/авторизуется
 - [[Referral System]] — реферальная логика
+- [[Auto-Renewal]] — auto_renew + preferred_payment_method
+- [[Admin Panel]] — is_staff check и admin роуты
+- [[SupportTicket Model]] — tickets / assigned_tickets связи
