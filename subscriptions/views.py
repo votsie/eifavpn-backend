@@ -275,11 +275,17 @@ class PurchaseView(APIView):
         user = request.user
         has_referral = getattr(user, 'referred_by', None) is not None
 
-        # Resolve promo code (explicit > pending). Defensive getattr — some deployments
-        # may pre-date the pending_promo_code migration.
+        # Resolve promo code — distinguish explicit (from request body) vs pending
+        # (auto-applied from user.pending_promo_code). If an explicit code fails validation
+        # we return 400 to the user. If a pending code fails, we silently clear it and
+        # proceed without discount — otherwise a stale pending promo permanently blocks
+        # the user's ability to purchase. Defensive getattr in case the field migration
+        # has not yet applied on this environment.
         pending = getattr(user, 'pending_promo_code', '') or ''
+        promo_from_pending = False
         if not promo_code_str and pending:
             promo_code_str = pending
+            promo_from_pending = True
 
         promo = None
         bonus_days = 0
@@ -287,12 +293,38 @@ class PurchaseView(APIView):
 
         if promo_code_str:
             if validate_promo_for_user is None:
-                return Response({'error': 'Промокоды временно недоступны'}, status=501)
-            promo, error = validate_promo_for_user(user, promo_code_str, plan, period)
-            if error:
-                return Response({'error': f'Промокод: {error}'}, status=400)
-            if promo.promo_type == 'gift':
-                return Response({'error': 'Подарочные промокоды активируются без покупки'}, status=400)
+                if promo_from_pending:
+                    promo_code_str = ''  # skip silently; pending gets cleared below
+                else:
+                    return Response({'error': 'Промокоды временно недоступны'}, status=501)
+            else:
+                promo, error = validate_promo_for_user(user, promo_code_str, plan, period)
+                if error:
+                    if promo_from_pending:
+                        # Stale or inapplicable pending code — clear it and continue
+                        # with a full-price purchase. User explicitly chose to pay, so
+                        # blocking them on a dangling pending is wrong.
+                        try:
+                            user.pending_promo_code = ''
+                            user.save(update_fields=['pending_promo_code'])
+                        except Exception:
+                            pass
+                        promo = None
+                        promo_code_str = ''
+                    else:
+                        return Response({'error': f'Промокод: {error}'}, status=400)
+                elif promo.promo_type == 'gift':
+                    if promo_from_pending:
+                        # Gift codes require the dedicated activation flow — don't hard-fail.
+                        try:
+                            user.pending_promo_code = ''
+                            user.save(update_fields=['pending_promo_code'])
+                        except Exception:
+                            pass
+                        promo = None
+                        promo_code_str = ''
+                    else:
+                        return Response({'error': 'Подарочные промокоды активируются без покупки'}, status=400)
 
         # Calculate price
         base_price = get_price(plan, period)
