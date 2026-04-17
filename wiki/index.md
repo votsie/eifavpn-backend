@@ -44,12 +44,16 @@ tags: [meta, index]
 
 - [[Authentication Flows]] — Email code, Google, Telegram (3 варианта)
 - [[Subscription Lifecycle]] — Trial → Purchase → Payment → Activation → Expiry → Winback
+- [[Auto-Renewal]] — Проактивные invoice-ссылки в Telegram (1 день до истечения)
+- [[Plan Upgrade]] — Pro-rata смена тарифа (только вверх, downgrade отключён)
 - [[Referral System]] — 10% скидка + 7 дней бонус
 - [[Promo Code System]] — percent/days/gift промокоды
 - [[Payment Processing]] — Stars, CryptoPay, Wata H2H
 - [[Remnawave Integration]] — API-клиент и CRUD подписок
 - [[Proxy System]] — Secure gateway к Remnawave с whitelist + ownership
 - [[JWT Authentication]] — simplejwt конфигурация
+- [[Support Tickets]] — Система тикетов с Telegram-интеграцией
+- [[Admin Panel]] — Архитектура admin_api (stats, users, payments, tickets)
 - [[Security Review]] — Аудит безопасности 2026-04-16 (P0-P2 fixes)
 
 ## Domains (Infrastructure)
