@@ -51,6 +51,7 @@ def paginate_qs(queryset, request, default_page_size=20):
         'page': page,
         'page_size': page_size,
         'total': total,
+        'count': total,  # backward compat alias
         'total_pages': max((total + page_size - 1) // page_size, 1),
     }
 
@@ -90,7 +91,7 @@ def serialize_subscription(s):
     return {
         'id': s.id,
         'user_id': s.user_id,
-        'user_email': s.user.email if hasattr(s, '_user_cache') or s.user_id else '',
+        'user_email': s.user.email if s.user_id else '',
         'plan': s.plan,
         'period_months': s.period_months,
         'price_paid': str(s.price_paid),
@@ -124,20 +125,58 @@ class StatsView(APIView):
 
     def get(self, request):
         now = timezone.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
         total_users = User.objects.count()
+        today_users = User.objects.filter(date_joined__gte=today_start).count()
+        tg_users = User.objects.filter(telegram_id__isnull=False).count()
+
         active_subs = Subscription.objects.filter(status='paid', expires_at__gt=now).count()
-        revenue = Subscription.objects.filter(status='paid').aggregate(
+        expired_subs = Subscription.objects.filter(status='expired').count()
+        pending_subs = Subscription.objects.filter(status='pending').count()
+
+        total_revenue = Subscription.objects.filter(status='paid').aggregate(
             total=Sum('price_paid')
         )['total'] or 0
-        trial_count = User.objects.filter(used_trial=True).count()
-        referral_count = Referral.objects.count()
+        month_revenue = Subscription.objects.filter(
+            status='paid', created_at__gte=month_start
+        ).aggregate(total=Sum('price_paid'))['total'] or 0
+
+        paid_count = Subscription.objects.filter(status='paid').exclude(payment_method='trial').count()
+        avg_check = round(float(total_revenue) / max(paid_count, 1), 0) if total_revenue else 0
+
+        active_referrers = Referral.objects.values('referrer_id').distinct().count()
+
+        # Plan distribution
+        by_plan = {}
+        for row in Subscription.objects.filter(status='paid', expires_at__gt=now).values('plan').annotate(c=Count('id')):
+            by_plan[row['plan']] = row['c']
 
         return Response({
+            'users': {
+                'total': total_users,
+                'today': today_users,
+                'with_telegram': tg_users,
+            },
+            'subscriptions': {
+                'active': active_subs,
+                'expired': expired_subs,
+                'pending': pending_subs,
+                'by_plan': by_plan,
+            },
+            'revenue': {
+                'total': float(total_revenue),
+                'month': float(month_revenue),
+                'avg_check': avg_check,
+            },
+            'referrals': {
+                'active_referrers': active_referrers,
+            },
+            # Legacy flat keys for backward compat
             'total_users': total_users,
             'active_subscriptions': active_subs,
-            'total_revenue': str(revenue),
-            'trial_count': trial_count,
-            'referral_count': referral_count,
+            'total_revenue': str(total_revenue),
         })
 
 
@@ -289,6 +328,27 @@ class UserListView(APIView):
                 Q(referral_code__icontains=search)
             )
 
+        # Filter by current plan
+        plan = request.query_params.get('plan', '').lower().strip()
+        now = timezone.now()
+        if plan in ('standard', 'pro', 'max'):
+            qs = qs.filter(subscriptions__plan=plan, subscriptions__status='paid',
+                          subscriptions__expires_at__gt=now).distinct()
+        elif plan == 'none':
+            qs = qs.exclude(subscriptions__status='paid', subscriptions__expires_at__gt=now)
+
+        # Filter by status
+        status = request.query_params.get('status', '').lower().strip()
+        if status == 'active':
+            qs = qs.filter(subscriptions__status='paid',
+                          subscriptions__expires_at__gt=now).distinct()
+        elif status == 'expired':
+            qs = qs.filter(subscriptions__expires_at__lt=now).distinct()
+        elif status == 'trial':
+            qs = qs.filter(used_trial=True, subscriptions__payment_method='trial').distinct()
+        elif status == 'never':
+            qs = qs.filter(subscriptions__isnull=True)
+
         ordering = request.query_params.get('ordering', '-date_joined')
         allowed_ordering = [
             'date_joined', '-date_joined', 'email', '-email',
@@ -302,6 +362,7 @@ class UserListView(APIView):
         items, meta = paginate_qs(qs, request)
         return Response({
             'results': [serialize_user_short(u) for u in items],
+            'count': meta['total'],  # backward compat: frontend expects 'count'
             **meta,
         })
 
@@ -339,7 +400,11 @@ class UserDetailView(APIView):
         updated = []
         for field in allowed_fields:
             if field in request.data:
-                setattr(user, field, request.data[field])
+                val = request.data[field]
+                # All allowed fields are BooleanField — coerce strings
+                if isinstance(val, str):
+                    val = val.lower() in ('true', '1', 'yes', 'on')
+                setattr(user, field, bool(val))
                 updated.append(field)
 
         if updated:
@@ -365,7 +430,10 @@ class UserExtendView(APIView):
         except User.DoesNotExist:
             return Response({'error': 'User not found'}, status=404)
 
-        days = int(request.data.get('days', 0))
+        try:
+            days = int(request.data.get('days', 0))
+        except (TypeError, ValueError):
+            return Response({'error': 'days must be an integer'}, status=400)
         if days < 1 or days > 365:
             return Response({'error': 'days must be between 1 and 365'}, status=400)
 
@@ -1176,7 +1244,10 @@ class BulkExtendView(APIView):
 
     def post(self, request):
         user_ids = request.data.get('user_ids', [])
-        days = int(request.data.get('days', 0))
+        try:
+            days = int(request.data.get('days', 0))
+        except (TypeError, ValueError):
+            return Response({'error': 'days must be an integer'}, status=400)
 
         if not user_ids:
             return Response({'error': 'user_ids is required'}, status=400)
@@ -1214,7 +1285,13 @@ class BulkExtendView(APIView):
 # Support Tickets
 # ---------------------------------------------------------------------------
 
-def serialize_ticket(t):
+def serialize_ticket(t, message_count=None, last_message=None):
+    """Serialize ticket. Pass message_count and last_message to avoid N+1 in list views."""
+    if message_count is None:
+        message_count = t.messages.count()
+    if last_message is None:
+        lm = t.messages.order_by('-created_at').values('text', 'is_staff', 'created_at').first()
+        last_message = lm
     return {
         'id': t.id,
         'user_id': t.user_id,
@@ -1227,8 +1304,8 @@ def serialize_ticket(t):
         'assigned_to_id': t.assigned_to_id,
         'assigned_to_email': t.assigned_to.email if t.assigned_to else None,
         'telegram_chat_id': t.telegram_chat_id,
-        'message_count': t.messages.count(),
-        'last_message': t.messages.order_by('-created_at').values('text', 'is_staff', 'created_at').first(),
+        'message_count': message_count,
+        'last_message': last_message,
         'created_at': t.created_at.isoformat(),
         'updated_at': t.updated_at.isoformat(),
     }
@@ -1278,10 +1355,27 @@ class TicketListView(APIView):
                 Q(id__icontains=search)
             )
 
-        qs = qs.order_by('-updated_at')
+        qs = qs.annotate(_msg_count=Count('messages')).order_by('-updated_at')
         items, meta = paginate_qs(qs, request)
+
+        # Batch-fetch last messages to avoid N+1
+        ticket_ids = [t.id for t in items]
+        last_messages = {}
+        if ticket_ids:
+            for msg in TicketMessage.objects.filter(
+                ticket_id__in=ticket_ids
+            ).order_by('ticket_id', '-created_at').distinct('ticket_id'):
+                last_messages[msg.ticket_id] = {
+                    'text': msg.text,
+                    'is_staff': msg.is_staff,
+                    'created_at': msg.created_at,
+                }
+
         return Response({
-            'results': [serialize_ticket(t) for t in items],
+            'results': [
+                serialize_ticket(t, message_count=t._msg_count, last_message=last_messages.get(t.id))
+                for t in items
+            ],
             **meta,
         })
 
@@ -1291,17 +1385,21 @@ class TicketStatsView(APIView):
 
     def get(self, request):
         now = timezone.now()
-        return Response({
-            'open': SupportTicket.objects.filter(status='open').count(),
-            'in_progress': SupportTicket.objects.filter(status='in_progress').count(),
-            'waiting': SupportTicket.objects.filter(status='waiting').count(),
-            'resolved_today': SupportTicket.objects.filter(
+        today = now.date()
+
+        # Single aggregate query instead of 5 separate COUNT(*)
+        stats = SupportTicket.objects.aggregate(
+            total=Count('id'),
+            open=Count('id', filter=Q(status='open')),
+            in_progress=Count('id', filter=Q(status='in_progress')),
+            waiting=Count('id', filter=Q(status='waiting')),
+            resolved_today=Count('id', filter=Q(
                 status__in=['resolved', 'closed'],
-                updated_at__date=now.date(),
-            ).count(),
-            'total': SupportTicket.objects.count(),
-            'avg_response_time': None,  # Could compute from first staff message
-        })
+                updated_at__date=today,
+            )),
+        )
+        stats['avg_response_time'] = None
+        return Response(stats)
 
 
 class TicketDetailView(APIView):
@@ -1438,8 +1536,11 @@ class TicketWebhookView(APIView):
     permission_classes = []  # Public — verified by secret
 
     def post(self, request):
-        # Verify secret
+        # Fail-closed: always require secret in production
         secret = getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '')
+        if not secret and not getattr(settings, 'DEBUG', False):
+            logger.error('TELEGRAM_WEBHOOK_SECRET not configured — rejecting ticket webhook')
+            return Response({'error': 'Webhook secret not configured'}, status=500)
         if secret:
             received = request.headers.get('X-Webhook-Secret', '')
             if received != secret:
