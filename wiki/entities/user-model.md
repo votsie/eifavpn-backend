@@ -3,9 +3,9 @@ title: User Model
 type: entity
 app: accounts
 file: accounts/models.py
-status: developing
+status: stable
 created: 2026-04-16
-updated: 2026-04-16
+updated: 2026-04-17
 tags: [entity, model, user]
 ---
 
