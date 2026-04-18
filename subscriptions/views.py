@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from django.db.models import F
+from django.db.utils import IntegrityError
 from accounts.models import Subscription, Referral, User
 try:
     from accounts.models import PromoCode, PromoCodeUsage
@@ -30,6 +31,7 @@ except ImportError:
     rub_to_crypto = None
     rub_to_stars = None
 from . import remnawave
+from .date_utils import add_months
 
 
 class PlansView(APIView):
@@ -352,7 +354,7 @@ class PurchaseView(APIView):
             price_paid=total_price,
             payment_method=method,
             status='pending',
-            expires_at=datetime.now(timezone.utc) + timedelta(days=period * 30),
+            expires_at=add_months(datetime.now(timezone.utc), period),
         )
         try:
             Subscription._meta.get_field('promo_code')
@@ -690,7 +692,7 @@ class UpgradeView(APIView):
                 price_paid=calc['charge_amount'],
                 payment_method=method,
                 status='pending',
-                expires_at=now_dt + timedelta(days=new_period * 30),
+                expires_at=add_months(now_dt, new_period),
                 upgrade_from=active_sub,
             )
 
@@ -754,10 +756,14 @@ from .invoices import create_stars_invoice, create_crypto_invoice, create_wata_i
 
 # === Webhooks ===
 
-def process_payment_success(sub):
+def process_payment_success(sub, payment_id=None):
     """After successful payment: create or update Remnawave subscription + referral bonus.
 
-    Idempotent: uses select_for_update to prevent double-processing from duplicate webhooks.
+    Idempotent: uses select_for_update to prevent double-processing from duplicate
+    webhooks. The payment_id is written atomically under the same lock — the DB-level
+    partial unique index on (payment_method, payment_id) is the ultimate backstop
+    against a concurrent webhook for a different Subscription row claiming the same
+    provider reference.
     """
     import logging
     from datetime import datetime, timedelta, timezone
@@ -774,11 +780,18 @@ def process_payment_success(sub):
             logger.info(f'Subscription {sub.pk} already paid, skipping duplicate webhook')
             return
 
+        # Record provider reference under the same lock as the status transition.
+        # Raises IntegrityError if another Subscription row already owns this
+        # (payment_method, payment_id) — caller should treat that as "already handled".
+        if payment_id and sub.payment_id != payment_id:
+            sub.payment_id = payment_id
+            sub.save(update_fields=['payment_id'])
+
         user = sub.user
 
         # Recalculate expires_at from NOW (payment time)
         if sub.period_months > 0:
-            sub.expires_at = datetime.now(timezone.utc) + timedelta(days=sub.period_months * 30)
+            sub.expires_at = add_months(datetime.now(timezone.utc), sub.period_months)
 
         # Provision VPN access via Remnawave
         remnawave_ok = False
@@ -924,12 +937,19 @@ def webhook_stars(request):
     try:
         data = json.loads(request.body)
 
-        # Handle pre_checkout_query — always approve
+        # Handle pre_checkout_query — verify the invoice before approving.
+        # Telegram requires a response within 10 sec; if we don't validate here, a
+        # crafted payload could complete payment for an amount that doesn't match
+        # our stored price_paid. Recompute expected stars server-side.
         if 'pre_checkout_query' in data:
             query = data['pre_checkout_query']
+            ok, error_message = _validate_stars_pre_checkout(query)
+            answer = {'pre_checkout_query_id': query['id'], 'ok': ok}
+            if not ok:
+                answer['error_message'] = error_message
             requests.post(
                 f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/answerPreCheckoutQuery',
-                json={'pre_checkout_query_id': query['id'], 'ok': True},
+                json=answer,
                 timeout=5,
             )
             return JsonResponse({'ok': True})
@@ -962,13 +982,79 @@ def webhook_stars(request):
             if sub_id:
                 sub = Subscription.objects.filter(id=sub_id, status='pending').first()
                 if sub:
-                    sub.payment_id = payment.get('telegram_payment_charge_id', '')
-                    sub.save(update_fields=['payment_id'])
-                    process_payment_success(sub)
+                    # Sanity-check: paid currency must be XTR and amount must match
+                    # the stars we expect for the recorded price_paid. Defence in depth
+                    # after pre_checkout validation.
+                    paid_amount = int(payment.get('total_amount', 0))
+                    paid_currency = payment.get('currency', '')
+                    expected_stars = rub_to_stars(float(sub.price_paid)) if rub_to_stars else 0
+                    if paid_currency != 'XTR' or paid_amount < expected_stars:
+                        import logging
+                        logging.error(
+                            'Stars successful_payment mismatch: sub=%s expected=%s got=%s %s',
+                            sub.id, expected_stars, paid_amount, paid_currency,
+                        )
+                        return JsonResponse({'ok': True})
+                    charge_id = payment.get('telegram_payment_charge_id', '')
+                    try:
+                        process_payment_success(sub, payment_id=charge_id)
+                    except IntegrityError:
+                        # Same charge_id already assigned to another Subscription row —
+                        # treat as a duplicate delivery and ack so Telegram stops retrying.
+                        import logging
+                        logging.info('Stars webhook: duplicate charge %s, ack-ing', charge_id)
 
         return JsonResponse({'ok': True})
     except Exception:
+        import logging
+        logging.exception('Stars webhook unexpected error')
         return JsonResponse({'ok': False}, status=500)
+
+
+def _validate_stars_pre_checkout(query):
+    """Verify a Telegram Stars pre_checkout_query against our stored invoice.
+
+    Returns (ok, error_message). ok=True only when the payload resolves to a
+    pending Subscription whose server-side expected amount matches the amount
+    Telegram is about to charge. This is the only window to reject a tampered
+    amount before the user's stars are debited.
+    """
+    try:
+        raw_payload = query.get('invoice_payload', '{}')
+        payload = json.loads(raw_payload) if raw_payload else {}
+    except (ValueError, TypeError):
+        return False, 'Некорректный платёж'
+
+    sub_id = payload.get('sub_id')
+    if not sub_id:
+        return False, 'Платёж не найден'
+
+    currency = query.get('currency', '')
+    if currency != 'XTR':
+        return False, 'Неверная валюта'
+
+    try:
+        total_amount = int(query.get('total_amount', 0))
+    except (TypeError, ValueError):
+        return False, 'Некорректная сумма'
+
+    sub = Subscription.objects.filter(id=sub_id, status='pending', payment_method='stars').first()
+    if not sub:
+        return False, 'Счёт не найден или уже оплачен'
+
+    if rub_to_stars is None:
+        return False, 'Платёжная система временно недоступна'
+
+    expected = rub_to_stars(float(sub.price_paid))
+    # Allow ≥ expected (Telegram rounds up), reject under-pay.
+    if total_amount < expected:
+        import logging
+        logging.warning(
+            'Stars pre_checkout amount mismatch: sub=%s expected=%s got=%s',
+            sub_id, expected, total_amount,
+        )
+        return False, 'Сумма платежа не совпадает'
+    return True, ''
 
 
 @csrf_exempt
@@ -983,7 +1069,7 @@ def webhook_crypto(request):
         secret = hashlib.sha256(settings.CRYPTOPAY_TOKEN.encode()).digest()
         expected = hmac.new(secret, request.body, hashlib.sha256).hexdigest()
 
-        if signature != expected:
+        if not hmac.compare_digest(signature, expected):
             return JsonResponse({'error': 'Invalid signature'}, status=403)
 
         data = json.loads(request.body)
@@ -997,12 +1083,17 @@ def webhook_crypto(request):
         if sub_id:
             sub = Subscription.objects.filter(id=sub_id, status='pending').first()
             if sub:
-                sub.payment_id = str(invoice.get('invoice_id', ''))
-                sub.save(update_fields=['payment_id'])
-                process_payment_success(sub)
+                provider_id = str(invoice.get('invoice_id', ''))
+                try:
+                    process_payment_success(sub, payment_id=provider_id)
+                except IntegrityError:
+                    import logging
+                    logging.info('CryptoPay webhook: duplicate invoice %s, ack-ing', provider_id)
 
         return JsonResponse({'ok': True})
     except Exception:
+        import logging
+        logging.exception('CryptoPay webhook unexpected error')
         return JsonResponse({'ok': False}, status=500)
 
 
@@ -1032,26 +1123,44 @@ def webhook_wata(request):
             sub_id = order_id.replace('eifavpn_', '')
             sub = Subscription.objects.filter(id=sub_id, status='pending').first()
             if sub and tx_id:
-                # Server-to-server verification: confirm payment via Wata API
+                # Server-to-server verification: confirm payment via Wata API.
+                # _WataVerificationError indicates transient failure — let it bubble up
+                # so we respond 5xx and Wata retries. A False return means an explicit
+                # mismatch (wrong amount / not Paid) and 403 is correct.
                 verified = _verify_wata_payment(tx_id, float(sub.price_paid))
                 if not verified:
                     logging.warning(f'Wata webhook: payment verification failed for txId={tx_id}')
                     return JsonResponse({'ok': False, 'error': 'Payment verification failed'}, status=403)
 
-                sub.payment_id = tx_id
-                process_payment_success(sub)
+                try:
+                    process_payment_success(sub, payment_id=tx_id)
+                except IntegrityError:
+                    logging.info('Wata webhook: duplicate tx %s, ack-ing', tx_id)
 
         return JsonResponse({'ok': True})
-    except Exception as e:
-        import logging
-        logging.error(f'Wata webhook error: {e}')
+    except _WataVerificationError as e:
+        logging.warning(f'Wata webhook: transient verification error, asking retry: {e}')
+        return JsonResponse({'ok': False, 'error': 'Verification temporarily unavailable'}, status=503)
+    except Exception:
+        logging.exception('Wata webhook unexpected error')
         return JsonResponse({'ok': False}, status=500)
 
 
+class _WataVerificationError(Exception):
+    """Wata API unreachable / transient error. Webhook should return 5xx so Wata retries."""
+
+
 def _verify_wata_payment(transaction_id, expected_amount):
-    """Verify payment by calling Wata API to confirm transaction status and amount."""
+    """Verify payment by calling Wata API to confirm transaction status and amount.
+
+    Returns True on match, False on explicit mismatch (wrong status / wrong amount).
+    Raises _WataVerificationError if the Wata API itself is unreachable — caller
+    should bubble this up so the webhook responds 5xx and Wata retries later.
+    Silently swallowing the transient error would drop legitimate payments.
+    """
     token = settings.WATA_TOKEN
     if not token:
+        # Misconfiguration, not transient — treat as hard failure.
         return False
     try:
         resp = requests.get(
@@ -1062,19 +1171,28 @@ def _verify_wata_payment(transaction_id, expected_amount):
             },
             timeout=10,
         )
-        if not resp.ok:
-            return False
-        data = resp.json()
-        # Verify status is paid and amount matches
-        if data.get('transactionStatus') != 'Paid':
-            return False
-        paid_amount = float(data.get('amount', 0))
-        if abs(paid_amount - expected_amount) > 1:  # Allow 1 RUB tolerance
-            return False
-        return True
-    except Exception:
-        # If verification API is down, reject — fail closed
+    except requests.RequestException as e:
+        raise _WataVerificationError(f'Wata API unreachable: {e}') from e
+
+    if resp.status_code >= 500:
+        raise _WataVerificationError(f'Wata API 5xx: {resp.status_code}')
+    if not resp.ok:
         return False
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise _WataVerificationError(f'Wata API malformed JSON: {e}') from e
+
+    if data.get('transactionStatus') != 'Paid':
+        return False
+    try:
+        paid_amount = float(data.get('amount', 0))
+    except (TypeError, ValueError):
+        return False
+    # Exact match with 1-kopeck tolerance for float rounding only.
+    if abs(paid_amount - float(expected_amount)) > 0.01:
+        return False
+    return True
 
 
 def _handle_connect_command(telegram_id, chat_id):

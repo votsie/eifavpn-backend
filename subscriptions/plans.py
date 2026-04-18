@@ -92,7 +92,11 @@ def get_upgrade_price(current_sub, new_plan, new_period):
 
     # Remaining days on current plan
     remaining_days = max((current_expires - now).days, 0)
-    total_days = current_sub.period_months * 30 if current_sub.period_months > 0 else remaining_days
+    # Actual paid-for duration = expires_at - created_at. This is calendar-accurate
+    # (handles month-length variance and leap days) and matches what the user
+    # actually paid for, rather than an approximated period_months * 30.
+    actual_total_days = max((current_expires - current_sub.created_at).days, 1)
+    total_days = actual_total_days if current_sub.period_months > 0 else remaining_days
 
     # Credit from current plan (proportional refund)
     if total_days > 0 and float(current_sub.price_paid) > 0:
@@ -112,9 +116,10 @@ def get_upgrade_price(current_sub, new_plan, new_period):
         charge_amount = max(new_total - current_credit, 1)
         credit_days = 0
     else:
-        # Downgrade: convert excess credit to bonus days
+        # Downgrade: convert excess credit to bonus days.
+        # new_daily_rate uses the calendar-accurate convention: ~30.44 days/month.
         if new_total > 0:
-            new_daily_rate = new_total / (new_period * 30)
+            new_daily_rate = new_total / (new_period * 30.44)
             credit_days = round((current_credit - new_total) / new_daily_rate) if current_credit > new_total else 0
         else:
             credit_days = 0

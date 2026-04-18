@@ -2,6 +2,7 @@ import secrets
 import string
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.db.models import Q
 
 
 def generate_referral_code():
@@ -102,6 +103,24 @@ class Subscription(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            # Prevent duplicate payment processing. Excludes empty payment_id
+            # (pending rows without a provider ref yet) and trial_/gift_
+            # prefixes, which are internal markers reused across users.
+            models.UniqueConstraint(
+                fields=['payment_method', 'payment_id'],
+                condition=(
+                    ~Q(payment_id='')
+                    & ~Q(payment_id__startswith='trial_')
+                    & ~Q(payment_id__startswith='gift_')
+                ),
+                name='uniq_subscription_external_payment_id',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['status', 'expires_at'], name='sub_status_expires_idx'),
+            models.Index(fields=['payment_id'], name='sub_payment_id_idx'),
+        ]
 
     def __str__(self):
         return f'{self.user.email} — {self.plan} ({self.status})'

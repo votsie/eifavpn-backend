@@ -12,6 +12,7 @@ from django.utils import timezone
 from accounts.models import User, Subscription
 from .invoices import create_stars_invoice, create_crypto_invoice, create_wata_invoice
 from .plans import PLANS, get_price
+from .date_utils import add_months
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def generate_renewal_invoice(user, current_sub):
         price_paid=price,
         payment_method=f'renewal_{method}',
         status='pending',
-        expires_at=datetime.now(tz.utc) + timedelta(days=period * 30),
+        expires_at=add_months(datetime.now(tz.utc), period),
     )
 
     # Generate invoice

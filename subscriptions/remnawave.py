@@ -4,6 +4,8 @@ import requests
 from django.conf import settings
 from datetime import datetime, timedelta, timezone
 
+from .date_utils import add_months
+
 
 def create_subscription(user, plan, period_months=0, days=None):
     """Create a NEW VPN subscription in Remnawave."""
@@ -13,7 +15,7 @@ def create_subscription(user, plan, period_months=0, days=None):
     if days:
         expire_at = datetime.now(timezone.utc) + timedelta(days=days)
     else:
-        expire_at = datetime.now(timezone.utc) + timedelta(days=period_months * 30)
+        expire_at = add_months(datetime.now(timezone.utc), period_months)
 
     payload = {
         'username': f'eifa_{user.id}_{plan}',
@@ -50,7 +52,7 @@ def update_subscription(remnawave_uuid, plan, period_months=0, days=None):
     if days:
         expire_at = datetime.now(timezone.utc) + timedelta(days=days)
     else:
-        expire_at = datetime.now(timezone.utc) + timedelta(days=period_months * 30)
+        expire_at = add_months(datetime.now(timezone.utc), period_months)
 
     # First extend expiry from current date (not from current expiry)
     payload = {
