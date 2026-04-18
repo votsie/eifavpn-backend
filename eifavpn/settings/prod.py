@@ -1,6 +1,26 @@
+import logging
+
 from .base import *
 
 DEBUG = False
+
+# Sentry — only if DSN is configured. Keeps dev/CI clean.
+_sentry_dsn = os.environ.get('SENTRY_DSN', '').strip()
+if _sentry_dsn:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        integrations=[
+            DjangoIntegration(),
+            LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
+        ],
+        environment=os.environ.get('SENTRY_ENVIRONMENT', 'prod'),
+        traces_sample_rate=float(os.environ.get('SENTRY_TRACES_SAMPLE_RATE', '0.05')),
+        send_default_pii=False,
+    )
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'eifavpn.ru,www.eifavpn.ru').split(',')
 
